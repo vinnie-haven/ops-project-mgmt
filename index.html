@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Haven Installs — Demo</title>
+<title>Haven Installs</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
 tailwind.config = {
@@ -40,12 +40,13 @@ tailwind.config = {
   .btn-secondary:hover { background: #FAFAF7; }
   .btn-accent { background: #C5E84A; color: #013300; }
   .btn-accent:hover { background: #B8DB3E; }
-  .nav-link { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 6px; font-size: 14px; color: #1A1F1A; cursor: pointer; transition: background 0.15s; }
+  .nav-link { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 6px; font-size: 13px; color: #1A1F1A; cursor: pointer; transition: background 0.15s; }
   .nav-link:hover { background: #FAFAF7; }
   .nav-link.active { background: rgba(197, 232, 74, 0.2); color: #013300; font-weight: 600; }
-  .nav-link svg { color: #6B7568; width: 16px; height: 16px; flex-shrink: 0; }
+  .nav-link svg { color: #6B7568; width: 15px; height: 15px; flex-shrink: 0; }
   .nav-link.active svg { color: #013300; }
   .nav-link .count-badge { margin-left: auto; background: #C44545; color: white; font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+  .nav-group-label { padding: 10px 12px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: #6B7568; font-weight: 600; }
   .view-toggle { display: inline-flex; background: #F0F0EA; border-radius: 6px; padding: 2px; }
   .view-toggle-btn { padding: 6px 12px; font-size: 13px; font-weight: 500; border-radius: 4px; cursor: pointer; border: none; background: transparent; color: #6B7568; transition: all 0.15s; }
   .view-toggle-btn.active { background: white; color: #013300; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
@@ -69,23 +70,32 @@ tailwind.config = {
   .risk-dot.high { background: #C44545; box-shadow: 0 0 0 3px rgba(196, 69, 69, 0.15); }
   .risk-dot.medium { background: #E0A83A; }
   .risk-dot.low { background: #2F7A3E; }
-  .attention-card { border-left: 4px solid #C44545; }
-  .waiting-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #F0F0EA; color: #6B7568; }
-  .avatar { width: 24px; height: 24px; border-radius: 50%; background: #013300; color: white; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; flex-shrink: 0; }
+  .avatar { border-radius: 50%; background: #013300; color: white; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; flex-shrink: 0; }
   .avatar-shane { background: #3A6EA8; }
   .avatar-danny { background: #2F7A3E; }
   .avatar-yaz { background: #8E4A9C; }
   .avatar-tenacia { background: #C5843A; }
+  .filter-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 12px; background: white; border: 1px solid #E4E6E0; cursor: pointer; transition: all 0.15s; font-weight: 500; }
+  .filter-chip.active { background: #013300; color: white; border-color: #013300; }
+  .filter-chip:hover:not(.active) { background: #FAFAF7; }
+  .track-bar { height: 6px; border-radius: 3px; background: #E4E6E0; overflow: hidden; }
+  .track-bar-fill { height: 100%; background: #013300; transition: width 0.3s; }
+  .track-bar-fill.warn { background: #E0A83A; }
+  .track-bar-fill.danger { background: #C44545; }
+  .sankey-bar { position: relative; height: 28px; margin: 4px 0; }
+  .checkbox { width: 15px; height: 15px; border: 1.5px solid #E4E6E0; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; background: white; }
+  .checkbox.checked { background: #013300; border-color: #013300; color: white; }
+  .modal-backdrop { background: rgba(0,0,0,0.4); }
+  select, input[type=text] { font-family: Inter, system-ui, sans-serif; }
 </style>
 </head>
 <body>
 
 <div class="flex min-h-screen">
-  <aside class="w-64 bg-white border-r border-haven-border flex flex-col shrink-0">
+  <aside class="w-60 bg-white border-r border-haven-border flex flex-col shrink-0">
     <div class="px-5 py-4 border-b border-haven-border">
       <div class="font-serif text-lg font-bold text-haven-forest">Haven Installs</div>
     </div>
-
     <div class="px-3 py-3 border-b border-haven-border">
       <div class="text-[10px] uppercase tracking-wider text-haven-muted mb-1.5 px-1">Portal</div>
       <div class="view-toggle w-full">
@@ -93,14 +103,12 @@ tailwind.config = {
         <button class="view-toggle-btn flex-1" data-mode="installer" id="toggleInstaller">Installer</button>
       </div>
     </div>
-
     <div class="px-3 py-3 border-b border-haven-border" id="coordSelector">
       <div class="text-[10px] uppercase tracking-wider text-haven-muted mb-1.5 px-1">Viewing as</div>
       <select id="coordSelect" class="w-full px-2 py-1.5 border border-haven-border rounded text-sm bg-white"></select>
       <div id="coordContext" class="text-[11px] text-haven-muted mt-2 px-1"></div>
     </div>
-
-    <nav class="flex-1 py-3 px-2 overflow-y-auto" id="nav"></nav>
+    <nav class="flex-1 py-2 px-2 overflow-y-auto" id="nav"></nav>
     <div class="p-3 border-t border-haven-border">
       <div class="text-[11px] text-haven-muted">Demo mode — no data persists</div>
     </div>
@@ -108,11 +116,18 @@ tailwind.config = {
   <main class="flex-1 overflow-auto" id="main"></main>
 </div>
 
-<div id="projectModal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
+<div id="projectModal" class="hidden fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeModal()">
   <div class="bg-haven-bg rounded-lg max-w-5xl w-full max-h-[90vh] overflow-auto" id="projectModalContent"></div>
 </div>
 
+<div id="advanceModal" class="hidden fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4" onclick="if(event.target===this)closeAdvanceModal()">
+  <div class="bg-white rounded-lg max-w-lg w-full" id="advanceModalContent"></div>
+</div>
+
 <script>
+// ============================================================
+// CONSTANTS
+// ============================================================
 const STAGE_ORDER = ['site_survey','design','permitting','scheduling','installation','inspection','interconnection','rebate'];
 const STAGE_LABELS = {
   site_survey: 'Site Survey', design: 'Design', permitting: 'Permitting',
@@ -122,66 +137,159 @@ const STAGE_LABELS = {
 const STAGE_TARGETS_CA = { site_survey: 7, design: 10, permitting: 21, scheduling: 5, installation: 2, inspection: 10, interconnection: 30, rebate: 14 };
 const STAGE_TARGETS_MA = { site_survey: 7, design: 10, permitting: 30, scheduling: 7, installation: 2, inspection: 14, interconnection: 45, rebate: 21 };
 
+// Stage-entry task templates (auto-generated when project enters stage)
+const STAGE_TEMPLATES = {
+  site_survey: [
+    { title: 'Schedule survey with customer', offset: 1, owner: 'coord' },
+    { title: 'Confirm surveyor availability', offset: 2, owner: 'surveyor' },
+    { title: 'Review survey report', offset: 7, owner: 'coord' },
+  ],
+  design: [
+    { title: 'Kick off design from survey package', offset: 1, owner: 'coord' },
+    { title: 'Internal design review', offset: 6, owner: 'coord' },
+    { title: 'Send design to customer for approval', offset: 8, owner: 'coord' },
+  ],
+  permitting: [
+    { title: 'Compile permit package', offset: 2, owner: 'coord' },
+    { title: 'Submit to AHJ', offset: 3, owner: 'coord' },
+    { title: 'Follow-up #1 with plan reviewer', offset: 10, owner: 'coord' },
+    { title: 'Follow-up #2 with plan reviewer', offset: 17, owner: 'coord' },
+  ],
+  scheduling: [
+    { title: 'Confirm install date with installer', offset: 1, owner: 'installer' },
+    { title: 'Confirm install date with customer', offset: 2, owner: 'coord' },
+    { title: 'Equipment order confirmation', offset: 3, owner: 'installer' },
+  ],
+  installation: [
+    { title: 'Day-of install confirmation call', offset: 0, owner: 'coord' },
+    { title: 'Upload final-install photo set', offset: 1, owner: 'installer' },
+    { title: 'Coordinator QA review', offset: 2, owner: 'coord' },
+  ],
+  inspection: [
+    { title: 'Request AHJ inspection', offset: 1, owner: 'coord' },
+    { title: 'Confirm inspection scheduled', offset: 3, owner: 'coord' },
+    { title: 'Process inspection result', offset: 8, owner: 'coord' },
+  ],
+  interconnection: [
+    { title: 'Submit interconnection application', offset: 1, owner: 'coord' },
+    { title: 'Utility receipt confirmation', offset: 3, owner: 'coord' },
+    { title: 'Follow-up on PTO', offset: 20, owner: 'coord' },
+  ],
+  rebate: [
+    { title: 'Submit SGIP/SMART paperwork', offset: 2, owner: 'coord' },
+    { title: 'Verify rebate receipt', offset: 10, owner: 'coord' },
+  ],
+};
+
 const COORDINATORS = ['Shane Brennan', 'Danny Chen', 'Yaz Okonkwo', 'Tenacia Williams'];
 const INSTALLERS = ['Sunlight Solar Co.', 'Bay Area Solar Installers', 'Pacific Coast Solar', 'Golden State Electric', 'NorCal Renewable', 'Bright Energy Contracting'];
 const CURRENT_INSTALLER = 'Sunlight Solar Co.';
 
 const IDLE_WARNING = 5;
 const IDLE_DANGER = 10;
+const CUSTOMER_SILENCE_WARNING = 3;
+const CUSTOMER_SILENCE_DANGER = 7;
 
 const WAITING_ON_LABELS = {
   ahj: 'AHJ', utility: 'Utility', customer: 'Customer',
   installer: 'Installer', internal: 'Internal', nothing: 'No blocker'
 };
 
-function coordKey(name) {
-  return name ? name.split(' ')[0].toLowerCase() : '';
-}
+// Historical AHJ/utility response times (demo data — would come from submittals log in real app)
+const EXTERNAL_PARTY_STATS = {
+  'City of San Jose': { avg: 14, median: 13, n: 22 },
+  'City of Oakland': { avg: 24, median: 21, n: 18 },
+  'City of Palo Alto': { avg: 11, median: 10, n: 14 },
+  'City of Fremont': { avg: 16, median: 15, n: 19 },
+  'City of Berkeley': { avg: 19, median: 17, n: 16 },
+  'City of Mountain View': { avg: 12, median: 11, n: 21 },
+  'City of San Mateo': { avg: 18, median: 16, n: 13 },
+  'City of Sunnyvale': { avg: 17, median: 16, n: 24 },
+  'City of Redwood City': { avg: 15, median: 14, n: 11 },
+  'City of Hayward': { avg: 22, median: 20, n: 12 },
+  'City of Pasadena': { avg: 20, median: 18, n: 9 },
+  'City of Long Beach': { avg: 25, median: 23, n: 8 },
+  'City of Irvine': { avg: 17, median: 16, n: 15 },
+  'City of Santa Monica': { avg: 23, median: 22, n: 10 },
+  'City of Glendale': { avg: 18, median: 17, n: 11 },
+  'City of San Diego': { avg: 16, median: 14, n: 19 },
+  'City of Half Moon Bay': { avg: 14, median: 13, n: 6 },
+  'City of Pacifica': { avg: 16, median: 15, n: 7 },
+  'City of Boston': { avg: 28, median: 26, n: 4 },
+  'City of Cambridge': { avg: 38, median: 36, n: 5 },
+  'Town of Brookline': { avg: 32, median: 30, n: 3 },
+  'City of Millbrae': { avg: 14, median: 13, n: 8 },
+  'City of San Carlos': { avg: 15, median: 14, n: 9 },
+  'City of Daly City': { avg: 18, median: 16, n: 7 },
+  'City and County of SF': { avg: 21, median: 19, n: 17 },
+  'City of Alameda': { avg: 17, median: 16, n: 10 },
+  'City of Burlingame': { avg: 15, median: 14, n: 9 },
+  'PG&E': { avg: 38, median: 34, n: 64 },
+  'SCE': { avg: 32, median: 30, n: 28 },
+  'SDG&E': { avg: 26, median: 24, n: 19 },
+  'PCE': { avg: 22, median: 20, n: 14 },
+  'National Grid': { avg: 42, median: 40, n: 5 },
+  'Eversource': { avg: 48, median: 45, n: 4 },
+};
+
+// Helpers
+function coordKey(name) { return name ? name.split(' ')[0].toLowerCase() : ''; }
 function coordInitials(name) {
   if (!name) return '?';
   const parts = name.split(' ');
   return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
 }
 function avatar(name, size = 24) {
-  const cls = `avatar avatar-${coordKey(name)}`;
-  return `<span class="${cls}" style="width:${size}px;height:${size}px;font-size:${size*0.4}px">${coordInitials(name)}</span>`;
+  return `<span class="avatar avatar-${coordKey(name)}" style="width:${size}px;height:${size}px;font-size:${size*0.4}px">${coordInitials(name)}</span>`;
 }
 
 // ============================================================
 // PROJECTS
 // ============================================================
-
 const PROJECTS_RAW = [
-  { name: 'Marcus Chen', city: 'San Jose', state: 'CA', zip: '95126', utility: 'PG&E', ahj: 'City of San Jose', solar: 8.4, battery: 13.5, stage: 'interconnection', daysInStage: 38, priority: 'high', coord: 'Shane Brennan', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Call PG&E rep re: PTO delay', nextActionOwner: 'Shane Brennan', nextActionDueInDays: -2, waitingOn: 'utility', lastTouchedDaysAgo: 11 },
-  { name: 'Sarah Martinez', city: 'Oakland', state: 'CA', zip: '94611', utility: 'PG&E', ahj: 'City of Oakland', solar: 6.2, battery: 10.0, stage: 'permitting', daysInStage: 28, priority: 'urgent', coord: 'Shane Brennan', installer: 'Bay Area Solar Installers', surveyor: 'SiteCheck Pros', nextAction: 'Resubmit revised drawings to Oakland', nextActionOwner: 'Shane Brennan', nextActionDueInDays: 0, waitingOn: 'internal', lastTouchedDaysAgo: 1 },
-  { name: 'David Kim', city: 'Palo Alto', state: 'CA', zip: '94301', utility: 'PG&E', ahj: 'City of Palo Alto', solar: 10.2, battery: 20.0, stage: 'installation', daysInStage: 1, priority: 'normal', coord: 'Danny Chen', installer: 'Pacific Coast Solar', surveyor: 'RoofScan Services', nextAction: 'Confirm final-install photos uploaded', nextActionOwner: 'Danny Chen', nextActionDueInDays: 1, waitingOn: 'installer', lastTouchedDaysAgo: 0 },
-  { name: 'Jennifer Park', city: 'Fremont', state: 'CA', zip: '94536', utility: 'PG&E', ahj: 'City of Fremont', solar: 7.8, battery: 13.5, stage: 'site_survey', daysInStage: 9, priority: 'normal', coord: 'Yaz Okonkwo', installer: null, surveyor: 'SiteCheck Pros', nextAction: 'Site survey report review', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 2, waitingOn: 'customer', lastTouchedDaysAgo: 8 },
-  { name: 'Michael Rivera', city: 'Berkeley', state: 'CA', zip: '94704', utility: 'PG&E', ahj: 'City of Berkeley', solar: 5.4, battery: 10.0, stage: 'design', daysInStage: 6, priority: 'normal', coord: 'Tenacia Williams', installer: null, surveyor: 'RoofScan Services', nextAction: null, nextActionOwner: null, nextActionDueInDays: null, waitingOn: 'nothing', lastTouchedDaysAgo: 6 },
-  { name: 'Emily Zhang', city: 'Mountain View', state: 'CA', zip: '94040', utility: 'PG&E', ahj: 'City of Mountain View', solar: 9.1, battery: 13.5, stage: 'scheduling', daysInStage: 3, priority: 'normal', coord: 'Danny Chen', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Confirm install date with customer', nextActionOwner: 'Danny Chen', nextActionDueInDays: 1, waitingOn: 'customer', lastTouchedDaysAgo: 2 },
-  { name: 'Robert Thompson', city: 'San Mateo', state: 'CA', zip: '94402', utility: 'PG&E', ahj: 'City of San Mateo', solar: 6.8, battery: 10.0, stage: 'inspection', daysInStage: 8, priority: 'normal', coord: 'Shane Brennan', installer: 'Bay Area Solar Installers', surveyor: 'GreenEye Site Survey', nextAction: 'Schedule final inspection with AHJ', nextActionOwner: 'Shane Brennan', nextActionDueInDays: 2, waitingOn: 'ahj', lastTouchedDaysAgo: 3 },
-  { name: 'Lisa Anderson', city: 'Sunnyvale', state: 'CA', zip: '94086', utility: 'PG&E', ahj: 'City of Sunnyvale', solar: 7.2, battery: 13.5, stage: 'permitting', daysInStage: 15, priority: 'normal', coord: 'Yaz Okonkwo', installer: null, surveyor: 'SiteCheck Pros', nextAction: 'Follow up with Sunnyvale plan reviewer', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 3, waitingOn: 'ahj', lastTouchedDaysAgo: 4 },
-  { name: 'James Wilson', city: 'Redwood City', state: 'CA', zip: '94063', utility: 'PG&E', ahj: 'City of Redwood City', solar: 8.0, battery: 20.0, stage: 'site_survey', daysInStage: 3, priority: 'normal', coord: 'Tenacia Williams', installer: null, surveyor: 'Precision Assessments', nextAction: 'Schedule survey window with customer', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: 1, waitingOn: 'customer', lastTouchedDaysAgo: 1 },
-  { name: 'Amanda Foster', city: 'Hayward', state: 'CA', zip: '94541', utility: 'PG&E', ahj: 'City of Hayward', solar: 5.9, battery: 10.0, stage: 'rebate', daysInStage: 5, priority: 'low', coord: 'Shane Brennan', installer: 'Golden State Electric', surveyor: 'RoofScan Services', nextAction: 'Verify SGIP RSSE payment submitted', nextActionOwner: 'Shane Brennan', nextActionDueInDays: 4, waitingOn: 'internal', lastTouchedDaysAgo: 5 },
-  { name: 'Carlos Mendez', city: 'Pasadena', state: 'CA', zip: '91101', utility: 'SCE', ahj: 'City of Pasadena', solar: 8.5, battery: 13.5, stage: 'interconnection', daysInStage: 22, priority: 'normal', coord: 'Danny Chen', installer: 'NorCal Renewable', surveyor: 'Precision Assessments', nextAction: null, nextActionOwner: null, nextActionDueInDays: null, waitingOn: 'utility', lastTouchedDaysAgo: 14 },
-  { name: 'Michelle Lee', city: 'Long Beach', state: 'CA', zip: '90803', utility: 'SCE', ahj: 'City of Long Beach', solar: 6.5, battery: 10.0, stage: 'design', daysInStage: 12, priority: 'high', coord: 'Tenacia Williams', installer: null, surveyor: 'GreenEye Site Survey', nextAction: 'Send revised design to customer', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: 1, waitingOn: 'internal', lastTouchedDaysAgo: 2 },
-  { name: 'Daniel Brooks', city: 'Irvine', state: 'CA', zip: '92614', utility: 'SCE', ahj: 'City of Irvine', solar: 11.0, battery: 20.0, stage: 'permitting', daysInStage: 18, priority: 'normal', coord: 'Yaz Okonkwo', installer: null, surveyor: 'SiteCheck Pros', nextAction: 'Check Irvine portal for reviewer assignment', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 2, waitingOn: 'ahj', lastTouchedDaysAgo: 7 },
-  { name: 'Rachel Nguyen', city: 'Santa Monica', state: 'CA', zip: '90401', utility: 'SCE', ahj: 'City of Santa Monica', solar: 7.6, battery: 13.5, stage: 'installation', daysInStage: 2, priority: 'urgent', coord: 'Danny Chen', installer: 'Bright Energy Contracting', surveyor: 'RoofScan Services', nextAction: 'Flag: customer disputing battery location', nextActionOwner: 'Danny Chen', nextActionDueInDays: 0, waitingOn: 'customer', lastTouchedDaysAgo: 0 },
-  { name: 'Steve Patel', city: 'Glendale', state: 'CA', zip: '91204', utility: 'SCE', ahj: 'City of Glendale', solar: 6.0, battery: 10.0, stage: 'scheduling', daysInStage: 8, priority: 'normal', coord: 'Shane Brennan', installer: 'Pacific Coast Solar', surveyor: 'SiteCheck Pros', nextAction: null, nextActionOwner: null, nextActionDueInDays: null, waitingOn: 'installer', lastTouchedDaysAgo: 8 },
-  { name: 'Nicole Ramirez', city: 'San Diego', state: 'CA', zip: '92103', utility: 'SDG&E', ahj: 'City of San Diego', solar: 9.3, battery: 13.5, stage: 'site_survey', daysInStage: 11, priority: 'high', coord: 'Tenacia Williams', installer: null, surveyor: 'Precision Assessments', nextAction: 'Reschedule — customer cancelled 1st attempt', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: -1, waitingOn: 'customer', lastTouchedDaysAgo: 4 },
-  { name: 'Kevin Walsh', city: 'La Jolla', state: 'CA', zip: '92037', utility: 'SDG&E', ahj: 'City of San Diego', solar: 12.4, battery: 20.0, stage: 'inspection', daysInStage: 6, priority: 'normal', coord: 'Yaz Okonkwo', installer: 'Pacific Coast Solar', surveyor: 'GreenEye Site Survey', nextAction: 'Confirm inspector arrival Thursday', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 2, waitingOn: 'ahj', lastTouchedDaysAgo: 1 },
-  { name: "Hannah O'Brien", city: 'Half Moon Bay', state: 'CA', zip: '94019', utility: 'PCE', ahj: 'City of Half Moon Bay', solar: 5.8, battery: 10.0, stage: 'rebate', daysInStage: 12, priority: 'normal', coord: 'Danny Chen', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Submit final paperwork to PCE', nextActionOwner: 'Danny Chen', nextActionDueInDays: 3, waitingOn: 'internal', lastTouchedDaysAgo: 3 },
-  { name: 'Alex Johnson', city: 'Pacifica', state: 'CA', zip: '94044', utility: 'PCE', ahj: 'City of Pacifica', solar: 6.4, battery: 13.5, stage: 'interconnection', daysInStage: 14, priority: 'normal', coord: 'Shane Brennan', installer: 'Bay Area Solar Installers', surveyor: 'RoofScan Services', nextAction: null, nextActionOwner: null, nextActionDueInDays: null, waitingOn: 'utility', lastTouchedDaysAgo: 13 },
-  { name: "Patricia O'Connor", city: 'Boston', state: 'MA', zip: '02116', utility: 'National Grid', ahj: 'City of Boston', solar: 7.4, battery: 13.5, stage: 'site_survey', daysInStage: 5, priority: 'normal', coord: 'Yaz Okonkwo', installer: null, surveyor: 'Precision Assessments', nextAction: 'Send surveyor access instructions', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 1, waitingOn: 'internal', lastTouchedDaysAgo: 2 },
-  { name: 'Thomas Murphy', city: 'Cambridge', state: 'MA', zip: '02139', utility: 'Eversource', ahj: 'City of Cambridge', solar: 6.2, battery: 10.0, stage: 'permitting', daysInStage: 35, priority: 'urgent', coord: 'Tenacia Williams', installer: null, surveyor: 'Precision Assessments', nextAction: 'Escalate to Cambridge head of permitting', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: -3, waitingOn: 'ahj', lastTouchedDaysAgo: 9 },
-  { name: 'Samantha Green', city: 'Brookline', state: 'MA', zip: '02445', utility: 'Eversource', ahj: 'Town of Brookline', solar: 8.8, battery: 13.5, stage: 'design', daysInStage: 4, priority: 'normal', coord: 'Shane Brennan', installer: null, surveyor: 'Precision Assessments', nextAction: 'Customer design approval call', nextActionOwner: 'Shane Brennan', nextActionDueInDays: 2, waitingOn: 'customer', lastTouchedDaysAgo: 0 },
-  { name: 'Priya Shah', city: 'Millbrae', state: 'CA', zip: '94030', utility: 'PG&E', ahj: 'City of Millbrae', solar: 7.0, battery: 13.5, stage: 'installation', daysInStage: 1, priority: 'high', coord: 'Danny Chen', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Review installer site photos', nextActionOwner: 'Danny Chen', nextActionDueInDays: 0, waitingOn: 'installer', lastTouchedDaysAgo: 0 },
-  { name: 'Brandon Reyes', city: 'San Carlos', state: 'CA', zip: '94070', utility: 'PG&E', ahj: 'City of San Carlos', solar: 8.2, battery: 13.5, stage: 'scheduling', daysInStage: 2, priority: 'normal', coord: 'Yaz Okonkwo', installer: 'Sunlight Solar Co.', surveyor: 'RoofScan Services', nextAction: 'Lock install window with Sunlight', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 2, waitingOn: 'installer', lastTouchedDaysAgo: 1 },
-  { name: 'Nina Kowalski', city: 'Daly City', state: 'CA', zip: '94014', utility: 'PG&E', ahj: 'City of Daly City', solar: 5.5, battery: 10.0, stage: 'inspection', daysInStage: 4, priority: 'normal', coord: 'Tenacia Williams', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Confirm inspection result', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: 1, waitingOn: 'ahj', lastTouchedDaysAgo: 2 },
-  { name: 'Brian Torres', city: 'San Francisco', state: 'CA', zip: '94110', utility: 'PG&E', ahj: 'City and County of SF', solar: 7.0, battery: 13.5, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Shane Brennan', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', cycleDays: 84, waitingOn: 'nothing', lastTouchedDaysAgo: 12 },
-  { name: 'Maria Garcia', city: 'Alameda', state: 'CA', zip: '94501', utility: 'PG&E', ahj: 'City of Alameda', solar: 5.5, battery: 10.0, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Danny Chen', installer: 'Bay Area Solar Installers', surveyor: 'RoofScan Services', cycleDays: 72, waitingOn: 'nothing', lastTouchedDaysAgo: 21 },
-  { name: 'John Hendricks', city: 'Berkeley', state: 'CA', zip: '94703', utility: 'PG&E', ahj: 'City of Berkeley', solar: 9.2, battery: 20.0, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Yaz Okonkwo', installer: 'Pacific Coast Solar', surveyor: 'SiteCheck Pros', cycleDays: 96, waitingOn: 'nothing', lastTouchedDaysAgo: 30 },
-  { name: 'Karen Wu', city: 'Burlingame', state: 'CA', zip: '94010', utility: 'PG&E', ahj: 'City of Burlingame', solar: 6.8, battery: 13.5, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Tenacia Williams', installer: 'Sunlight Solar Co.', surveyor: 'GreenEye Site Survey', cycleDays: 68, waitingOn: 'nothing', lastTouchedDaysAgo: 18 },
+  { name: 'Marcus Chen', city: 'San Jose', state: 'CA', zip: '95126', utility: 'PG&E', ahj: 'City of San Jose', solar: 8.4, battery: 13.5, stage: 'interconnection', daysInStage: 38, priority: 'high', coord: 'Shane Brennan', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Call PG&E rep re: PTO delay', nextActionOwner: 'Shane Brennan', nextActionDueInDays: -2, waitingOn: 'utility', lastTouchedDaysAgo: 11, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Sarah Martinez', city: 'Oakland', state: 'CA', zip: '94611', utility: 'PG&E', ahj: 'City of Oakland', solar: 6.2, battery: 10.0, stage: 'permitting', daysInStage: 28, priority: 'urgent', coord: 'Shane Brennan', installer: 'Bay Area Solar Installers', surveyor: 'SiteCheck Pros', nextAction: 'Resubmit revised drawings to Oakland', nextActionOwner: 'Shane Brennan', nextActionDueInDays: 0, waitingOn: 'internal', lastTouchedDaysAgo: 1, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'in_progress' } },
+  { name: 'David Kim', city: 'Palo Alto', state: 'CA', zip: '94301', utility: 'PG&E', ahj: 'City of Palo Alto', solar: 10.2, battery: 20.0, stage: 'installation', daysInStage: 1, priority: 'normal', coord: 'Danny Chen', installer: 'Pacific Coast Solar', surveyor: 'RoofScan Services', nextAction: 'Confirm final-install photos uploaded', nextActionOwner: 'Danny Chen', nextActionDueInDays: 1, waitingOn: 'installer', lastTouchedDaysAgo: 0, tracks: { hoa: 'na', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Jennifer Park', city: 'Fremont', state: 'CA', zip: '94536', utility: 'PG&E', ahj: 'City of Fremont', solar: 7.8, battery: 13.5, stage: 'site_survey', daysInStage: 9, priority: 'normal', coord: 'Yaz Okonkwo', installer: null, surveyor: 'SiteCheck Pros', nextAction: 'Site survey report review', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 2, waitingOn: 'customer', lastTouchedDaysAgo: 8, tracks: { hoa: 'in_progress', financing: 'in_progress', utility_preapp: 'not_started' } },
+  { name: 'Michael Rivera', city: 'Berkeley', state: 'CA', zip: '94704', utility: 'PG&E', ahj: 'City of Berkeley', solar: 5.4, battery: 10.0, stage: 'design', daysInStage: 6, priority: 'normal', coord: 'Tenacia Williams', installer: null, surveyor: 'RoofScan Services', nextAction: null, nextActionOwner: null, nextActionDueInDays: null, waitingOn: 'nothing', lastTouchedDaysAgo: 6, tracks: { hoa: 'na', financing: 'done', utility_preapp: 'not_started' } },
+  { name: 'Emily Zhang', city: 'Mountain View', state: 'CA', zip: '94040', utility: 'PG&E', ahj: 'City of Mountain View', solar: 9.1, battery: 13.5, stage: 'scheduling', daysInStage: 3, priority: 'normal', coord: 'Danny Chen', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Confirm install date with customer', nextActionOwner: 'Danny Chen', nextActionDueInDays: 1, waitingOn: 'customer', lastTouchedDaysAgo: 2, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Robert Thompson', city: 'San Mateo', state: 'CA', zip: '94402', utility: 'PG&E', ahj: 'City of San Mateo', solar: 6.8, battery: 10.0, stage: 'inspection', daysInStage: 8, priority: 'normal', coord: 'Shane Brennan', installer: 'Bay Area Solar Installers', surveyor: 'GreenEye Site Survey', nextAction: 'Schedule final inspection with AHJ', nextActionOwner: 'Shane Brennan', nextActionDueInDays: 2, waitingOn: 'ahj', lastTouchedDaysAgo: 3, tracks: { hoa: 'na', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Lisa Anderson', city: 'Sunnyvale', state: 'CA', zip: '94086', utility: 'PG&E', ahj: 'City of Sunnyvale', solar: 7.2, battery: 13.5, stage: 'permitting', daysInStage: 15, priority: 'normal', coord: 'Yaz Okonkwo', installer: null, surveyor: 'SiteCheck Pros', nextAction: 'Follow up with Sunnyvale plan reviewer', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 3, waitingOn: 'ahj', lastTouchedDaysAgo: 4, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'James Wilson', city: 'Redwood City', state: 'CA', zip: '94063', utility: 'PG&E', ahj: 'City of Redwood City', solar: 8.0, battery: 20.0, stage: 'site_survey', daysInStage: 3, priority: 'normal', coord: 'Tenacia Williams', installer: null, surveyor: 'Precision Assessments', nextAction: 'Schedule survey window with customer', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: 1, waitingOn: 'customer', lastTouchedDaysAgo: 1, tracks: { hoa: 'in_progress', financing: 'done', utility_preapp: 'in_progress' } },
+  { name: 'Amanda Foster', city: 'Hayward', state: 'CA', zip: '94541', utility: 'PG&E', ahj: 'City of Hayward', solar: 5.9, battery: 10.0, stage: 'rebate', daysInStage: 5, priority: 'low', coord: 'Shane Brennan', installer: 'Golden State Electric', surveyor: 'RoofScan Services', nextAction: 'Verify SGIP RSSE payment submitted', nextActionOwner: 'Shane Brennan', nextActionDueInDays: 4, waitingOn: 'internal', lastTouchedDaysAgo: 5, tracks: { hoa: 'na', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Carlos Mendez', city: 'Pasadena', state: 'CA', zip: '91101', utility: 'SCE', ahj: 'City of Pasadena', solar: 8.5, battery: 13.5, stage: 'interconnection', daysInStage: 22, priority: 'normal', coord: 'Danny Chen', installer: 'NorCal Renewable', surveyor: 'Precision Assessments', nextAction: null, nextActionOwner: null, nextActionDueInDays: null, waitingOn: 'utility', lastTouchedDaysAgo: 14, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Michelle Lee', city: 'Long Beach', state: 'CA', zip: '90803', utility: 'SCE', ahj: 'City of Long Beach', solar: 6.5, battery: 10.0, stage: 'design', daysInStage: 12, priority: 'high', coord: 'Tenacia Williams', installer: null, surveyor: 'GreenEye Site Survey', nextAction: 'Send revised design to customer', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: 1, waitingOn: 'internal', lastTouchedDaysAgo: 2, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'in_progress' } },
+  { name: 'Daniel Brooks', city: 'Irvine', state: 'CA', zip: '92614', utility: 'SCE', ahj: 'City of Irvine', solar: 11.0, battery: 20.0, stage: 'permitting', daysInStage: 18, priority: 'normal', coord: 'Yaz Okonkwo', installer: null, surveyor: 'SiteCheck Pros', nextAction: 'Check Irvine portal for reviewer assignment', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 2, waitingOn: 'ahj', lastTouchedDaysAgo: 7, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Rachel Nguyen', city: 'Santa Monica', state: 'CA', zip: '90401', utility: 'SCE', ahj: 'City of Santa Monica', solar: 7.6, battery: 13.5, stage: 'installation', daysInStage: 2, priority: 'urgent', coord: 'Danny Chen', installer: 'Bright Energy Contracting', surveyor: 'RoofScan Services', nextAction: 'Flag: customer disputing battery location', nextActionOwner: 'Danny Chen', nextActionDueInDays: 0, waitingOn: 'customer', lastTouchedDaysAgo: 0, tracks: { hoa: 'na', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Steve Patel', city: 'Glendale', state: 'CA', zip: '91204', utility: 'SCE', ahj: 'City of Glendale', solar: 6.0, battery: 10.0, stage: 'scheduling', daysInStage: 8, priority: 'normal', coord: 'Shane Brennan', installer: 'Pacific Coast Solar', surveyor: 'SiteCheck Pros', nextAction: null, nextActionOwner: null, nextActionDueInDays: null, waitingOn: 'installer', lastTouchedDaysAgo: 8, tracks: { hoa: 'na', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Nicole Ramirez', city: 'San Diego', state: 'CA', zip: '92103', utility: 'SDG&E', ahj: 'City of San Diego', solar: 9.3, battery: 13.5, stage: 'site_survey', daysInStage: 11, priority: 'high', coord: 'Tenacia Williams', installer: null, surveyor: 'Precision Assessments', nextAction: 'Reschedule — customer cancelled 1st attempt', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: -1, waitingOn: 'customer', lastTouchedDaysAgo: 4, tracks: { hoa: 'in_progress', financing: 'in_progress', utility_preapp: 'not_started' } },
+  { name: 'Kevin Walsh', city: 'La Jolla', state: 'CA', zip: '92037', utility: 'SDG&E', ahj: 'City of San Diego', solar: 12.4, battery: 20.0, stage: 'inspection', daysInStage: 6, priority: 'normal', coord: 'Yaz Okonkwo', installer: 'Pacific Coast Solar', surveyor: 'GreenEye Site Survey', nextAction: 'Confirm inspector arrival Thursday', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 2, waitingOn: 'ahj', lastTouchedDaysAgo: 1, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: "Hannah O'Brien", city: 'Half Moon Bay', state: 'CA', zip: '94019', utility: 'PCE', ahj: 'City of Half Moon Bay', solar: 5.8, battery: 10.0, stage: 'rebate', daysInStage: 12, priority: 'normal', coord: 'Danny Chen', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Submit final paperwork to PCE', nextActionOwner: 'Danny Chen', nextActionDueInDays: 3, waitingOn: 'internal', lastTouchedDaysAgo: 3, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Alex Johnson', city: 'Pacifica', state: 'CA', zip: '94044', utility: 'PCE', ahj: 'City of Pacifica', solar: 6.4, battery: 13.5, stage: 'interconnection', daysInStage: 14, priority: 'normal', coord: 'Shane Brennan', installer: 'Bay Area Solar Installers', surveyor: 'RoofScan Services', nextAction: null, nextActionOwner: null, nextActionDueInDays: null, waitingOn: 'utility', lastTouchedDaysAgo: 13, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: "Patricia O'Connor", city: 'Boston', state: 'MA', zip: '02116', utility: 'National Grid', ahj: 'City of Boston', solar: 7.4, battery: 13.5, stage: 'site_survey', daysInStage: 5, priority: 'normal', coord: 'Yaz Okonkwo', installer: null, surveyor: 'Precision Assessments', nextAction: 'Send surveyor access instructions', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 1, waitingOn: 'internal', lastTouchedDaysAgo: 2, tracks: { hoa: 'in_progress', financing: 'done', utility_preapp: 'in_progress' } },
+  { name: 'Thomas Murphy', city: 'Cambridge', state: 'MA', zip: '02139', utility: 'Eversource', ahj: 'City of Cambridge', solar: 6.2, battery: 10.0, stage: 'permitting', daysInStage: 35, priority: 'urgent', coord: 'Tenacia Williams', installer: null, surveyor: 'Precision Assessments', nextAction: 'Escalate to Cambridge head of permitting', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: -3, waitingOn: 'ahj', lastTouchedDaysAgo: 9, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Samantha Green', city: 'Brookline', state: 'MA', zip: '02445', utility: 'Eversource', ahj: 'Town of Brookline', solar: 8.8, battery: 13.5, stage: 'design', daysInStage: 4, priority: 'normal', coord: 'Shane Brennan', installer: null, surveyor: 'Precision Assessments', nextAction: 'Customer design approval call', nextActionOwner: 'Shane Brennan', nextActionDueInDays: 2, waitingOn: 'customer', lastTouchedDaysAgo: 0, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'in_progress' } },
+  { name: 'Priya Shah', city: 'Millbrae', state: 'CA', zip: '94030', utility: 'PG&E', ahj: 'City of Millbrae', solar: 7.0, battery: 13.5, stage: 'installation', daysInStage: 1, priority: 'high', coord: 'Danny Chen', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Review installer site photos', nextActionOwner: 'Danny Chen', nextActionDueInDays: 0, waitingOn: 'installer', lastTouchedDaysAgo: 0, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Brandon Reyes', city: 'San Carlos', state: 'CA', zip: '94070', utility: 'PG&E', ahj: 'City of San Carlos', solar: 8.2, battery: 13.5, stage: 'scheduling', daysInStage: 2, priority: 'normal', coord: 'Yaz Okonkwo', installer: 'Sunlight Solar Co.', surveyor: 'RoofScan Services', nextAction: 'Lock install window with Sunlight', nextActionOwner: 'Yaz Okonkwo', nextActionDueInDays: 2, waitingOn: 'installer', lastTouchedDaysAgo: 1, tracks: { hoa: 'na', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Nina Kowalski', city: 'Daly City', state: 'CA', zip: '94014', utility: 'PG&E', ahj: 'City of Daly City', solar: 5.5, battery: 10.0, stage: 'inspection', daysInStage: 4, priority: 'normal', coord: 'Tenacia Williams', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', nextAction: 'Confirm inspection result', nextActionOwner: 'Tenacia Williams', nextActionDueInDays: 1, waitingOn: 'ahj', lastTouchedDaysAgo: 2, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Brian Torres', city: 'San Francisco', state: 'CA', zip: '94110', utility: 'PG&E', ahj: 'City and County of SF', solar: 7.0, battery: 13.5, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Shane Brennan', installer: 'Sunlight Solar Co.', surveyor: 'SiteCheck Pros', cycleDays: 84, waitingOn: 'nothing', lastTouchedDaysAgo: 12, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Maria Garcia', city: 'Alameda', state: 'CA', zip: '94501', utility: 'PG&E', ahj: 'City of Alameda', solar: 5.5, battery: 10.0, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Danny Chen', installer: 'Bay Area Solar Installers', surveyor: 'RoofScan Services', cycleDays: 72, waitingOn: 'nothing', lastTouchedDaysAgo: 21, tracks: { hoa: 'na', financing: 'done', utility_preapp: 'done' } },
+  { name: 'John Hendricks', city: 'Berkeley', state: 'CA', zip: '94703', utility: 'PG&E', ahj: 'City of Berkeley', solar: 9.2, battery: 20.0, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Yaz Okonkwo', installer: 'Pacific Coast Solar', surveyor: 'SiteCheck Pros', cycleDays: 96, waitingOn: 'nothing', lastTouchedDaysAgo: 30, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
+  { name: 'Karen Wu', city: 'Burlingame', state: 'CA', zip: '94010', utility: 'PG&E', ahj: 'City of Burlingame', solar: 6.8, battery: 13.5, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Tenacia Williams', installer: 'Sunlight Solar Co.', surveyor: 'GreenEye Site Survey', cycleDays: 68, waitingOn: 'nothing', lastTouchedDaysAgo: 18, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
 ];
+
+// Stage durations for completed projects — for time-allocation viz
+const COMPLETED_STAGE_DURATIONS = {
+  site_survey: [5, 6, 8, 7],
+  design: [7, 8, 9, 8],
+  permitting: [18, 21, 28, 23],
+  scheduling: [3, 4, 5, 4],
+  installation: [2, 2, 3, 2],
+  inspection: [8, 9, 11, 10],
+  interconnection: [22, 26, 31, 25],
+  rebate: [10, 12, 14, 11],
+  handoff_gaps: [2, 3, 1, 2, 2, 1, 2, 3] // interspersed handoff time
+};
 
 const PROJECTS = PROJECTS_RAW.map((p, i) => {
   const target = (p.state === 'MA' ? STAGE_TARGETS_MA : STAGE_TARGETS_CA)[p.stage] ?? null;
@@ -207,48 +315,145 @@ const PROJECTS = PROJECTS_RAW.map((p, i) => {
   risk = Math.min(100, risk);
   const riskLevel = risk >= 50 ? 'high' : risk >= 25 ? 'medium' : 'low';
 
-  const attentionReasons = [];
-  if (p.stage !== 'completed') {
-    if (slaStatus === 'breached') attentionReasons.push(`${daysOverdue}d past SLA`);
-    if (!p.nextAction) attentionReasons.push('No next action set');
-    if (p.nextActionDueInDays !== null && p.nextActionDueInDays < 0) attentionReasons.push(`Next action ${-p.nextActionDueInDays}d overdue`);
-    if (p.nextActionDueInDays === 0) attentionReasons.push('Next action due today');
-    if (p.lastTouchedDaysAgo >= IDLE_DANGER) attentionReasons.push(`Idle ${p.lastTouchedDaysAgo}d`);
-    else if (p.lastTouchedDaysAgo >= IDLE_WARNING) attentionReasons.push(`Quiet ${p.lastTouchedDaysAgo}d`);
-  }
-
   return {
     ...p,
     id: `p${i+1}`,
     projectNumber: `HVN-2026-${String(i+1).padStart(4, '0')}`,
     daysOverdue, effectiveTarget, slaStatus,
-    risk, riskLevel, attentionReasons,
+    risk, riskLevel,
     systemType: p.battery && p.solar ? 'Solar + Battery' : p.solar ? 'Solar only' : 'Battery only',
-    kickoffAgo: Math.floor(Math.random() * 45) + p.daysInStage + 5
+    kickoffAgo: Math.floor(Math.random() * 45) + p.daysInStage + 5,
+    customerLastReplyDaysAgo: p.waitingOn === 'customer' ? Math.max(1, p.lastTouchedDaysAgo) : null,
   };
 });
 
 // ============================================================
-// TASKS
+// TASKS — auto-generated from stage templates per project
 // ============================================================
-const TASKS = [
-  { id: 't1', projectId: 'p1', title: 'Submit interconnection application to PG&E', priority: 'urgent', dueInDays: -5, status: 'open', stage: 'interconnection', ownerType: 'internal' },
-  { id: 't2', projectId: 'p1', title: 'Follow up on PTO status with PG&E', priority: 'high', dueInDays: 1, status: 'open', stage: 'interconnection', ownerType: 'internal' },
-  { id: 't3', projectId: 'p2', title: 'AHJ requested revised plans — update drawings', priority: 'urgent', dueInDays: -2, status: 'open', stage: 'permitting', ownerType: 'internal' },
-  { id: 't4', projectId: 'p2', title: 'Resubmit to City of Oakland', priority: 'urgent', dueInDays: 0, status: 'open', stage: 'permitting', ownerType: 'internal' },
-  { id: 't5', projectId: 'p3', title: 'Confirm installer crew arrival 8am', priority: 'high', dueInDays: 0, status: 'open', stage: 'installation', ownerType: 'internal' },
-  { id: 't6', projectId: 'p4', title: 'Schedule site survey with SiteCheck', priority: 'normal', dueInDays: 2, status: 'open', stage: 'site_survey', ownerType: 'internal' },
-  { id: 't7', projectId: 'p5', title: 'Review initial design with customer', priority: 'normal', dueInDays: 3, status: 'open', stage: 'design', ownerType: 'internal' },
-  { id: 't8', projectId: 'p8', title: 'Sunnyvale plan reviewer assigned — check status', priority: 'normal', dueInDays: 5, status: 'open', stage: 'permitting', ownerType: 'internal' },
-  { id: 't13', projectId: 'p12', title: 'Send updated design to customer for approval', priority: 'high', dueInDays: 1, status: 'open', stage: 'design', ownerType: 'internal' },
-  { id: 't20', projectId: 'p1', title: 'Install RSSE + inverter — Chen residence', priority: 'normal', dueInDays: 5, status: 'done', stage: 'installation', ownerType: 'installer' },
-  { id: 't21', projectId: 'p6', title: 'Schedule install date with Emily Zhang', priority: 'high', dueInDays: 1, status: 'open', stage: 'scheduling', ownerType: 'installer' },
-  { id: 't22', projectId: 'p17', title: 'Confirm equipment availability for next week', priority: 'normal', dueInDays: 3, status: 'open', stage: 'rebate', ownerType: 'installer' },
-  { id: 't23', projectId: 'p22', title: 'Install crew assigned — confirm arrival 8am', priority: 'urgent', dueInDays: 0, status: 'open', stage: 'installation', ownerType: 'installer' },
-  { id: 't24', projectId: 'p23', title: 'Review scope with coordinator before Thursday', priority: 'high', dueInDays: 2, status: 'open', stage: 'scheduling', ownerType: 'installer' },
-  { id: 't25', projectId: 'p24', title: 'Upload final-install photo set', priority: 'high', dueInDays: 0, status: 'open', stage: 'inspection', ownerType: 'installer' },
-  { id: 't26', projectId: 'p22', title: 'Flag: customer requested battery relocation', priority: 'urgent', dueInDays: -1, status: 'open', stage: 'installation', ownerType: 'installer' },
-];
+const TASKS = [];
+let taskSeq = 1;
+
+// Generate standard stage tasks for every project (simulate they were created when each project entered its current stage)
+PROJECTS.forEach(p => {
+  if (p.stage === 'completed') return;
+  const template = STAGE_TEMPLATES[p.stage] || [];
+  template.forEach(t => {
+    // dueInDays relative to today: task was scheduled offset-days after stage entry
+    const dueInDays = t.offset - p.daysInStage;
+    const ownerType = (t.owner === 'installer' || t.owner === 'surveyor') ? 'installer' : 'internal';
+    // Mark as done if clearly past due and plausibly done
+    const status = (dueInDays < -3 && Math.random() < 0.7) ? 'done' : 'open';
+    TASKS.push({
+      id: `t${taskSeq++}`,
+      projectId: p.id,
+      title: t.title,
+      priority: dueInDays < -2 ? 'urgent' : dueInDays <= 1 ? 'high' : 'normal',
+      dueInDays,
+      status,
+      stage: p.stage,
+      ownerType,
+      autoGenerated: true,
+      fromTemplate: true,
+    });
+  });
+});
+
+// A few manual / escalation tasks on top
+TASKS.push(
+  { id: `t${taskSeq++}`, projectId: 'p2', title: 'AHJ requested revised plans — update drawings', priority: 'urgent', dueInDays: -2, status: 'open', stage: 'permitting', ownerType: 'internal' },
+  { id: `t${taskSeq++}`, projectId: 'p14', title: 'Flag: customer requested battery relocation', priority: 'urgent', dueInDays: -1, status: 'open', stage: 'installation', ownerType: 'installer' },
+  { id: `t${taskSeq++}`, projectId: 'p21', title: 'Escalate to Cambridge head of permitting', priority: 'urgent', dueInDays: -3, status: 'open', stage: 'permitting', ownerType: 'internal' },
+);
+
+// ============================================================
+// SUBMITTALS LOG — every document sent to external parties
+// ============================================================
+const SUBMITTAL_TYPES = {
+  permit_app: 'Permit application',
+  permit_resubmit: 'Permit resubmittal',
+  utility_preapp: 'Utility pre-application',
+  interconnection_app: 'Interconnection application',
+  inspection_request: 'Inspection request',
+  sgip_rsse: 'SGIP RSSE submission',
+  sgip_claim: 'SGIP incentive claim',
+  smart_app: 'SMART application',
+  ptoc_submission: 'PTO submission',
+};
+
+const SUBMITTALS = [];
+let subSeq = 1;
+
+// Generate submittals based on project stage (everything past permitting has a permit submittal, etc.)
+PROJECTS.forEach(p => {
+  const stageIdx = STAGE_ORDER.indexOf(p.stage);
+  const completed = p.stage === 'completed';
+  const isPast = (s) => completed || stageIdx > STAGE_ORDER.indexOf(s);
+  const isCurrent = (s) => p.stage === s;
+
+  // Permit submission for anything at or past permitting
+  if (stageIdx >= STAGE_ORDER.indexOf('permitting') || completed) {
+    const sentDaysAgo = isCurrent('permitting') ? p.daysInStage : 40 + Math.floor(Math.random() * 30);
+    const ahjStats = EXTERNAL_PARTY_STATS[p.ahj] || { avg: 20, median: 18, n: 10 };
+    const expectedResponseInDays = ahjStats.avg;
+    const responseDaysAgo = isPast('permitting') ? sentDaysAgo - Math.floor(ahjStats.avg * (0.8 + Math.random() * 0.4)) : null;
+    SUBMITTALS.push({
+      id: `s${subSeq++}`,
+      projectId: p.id,
+      type: 'permit_app',
+      recipient: p.ahj,
+      recipientType: 'ahj',
+      sentDaysAgo,
+      expectedResponseInDays,
+      responseDaysAgo,
+      status: responseDaysAgo !== null ? 'responded' : (sentDaysAgo > expectedResponseInDays ? 'overdue' : 'pending'),
+    });
+  }
+
+  // Resubmit for Oakland permitting project specifically
+  if (p.id === 'p2') {
+    SUBMITTALS.push({
+      id: `s${subSeq++}`, projectId: p.id, type: 'permit_resubmit', recipient: p.ahj, recipientType: 'ahj',
+      sentDaysAgo: 14, expectedResponseInDays: 14, responseDaysAgo: null, status: 'pending',
+    });
+  }
+
+  // Interconnection for anything at or past that stage
+  if (stageIdx >= STAGE_ORDER.indexOf('interconnection') || completed) {
+    const sentDaysAgo = isCurrent('interconnection') ? p.daysInStage : 20 + Math.floor(Math.random() * 15);
+    const uStats = EXTERNAL_PARTY_STATS[p.utility] || { avg: 30 };
+    const responseDaysAgo = completed ? sentDaysAgo - Math.floor(uStats.avg * 0.9) : null;
+    SUBMITTALS.push({
+      id: `s${subSeq++}`,
+      projectId: p.id,
+      type: 'interconnection_app',
+      recipient: p.utility,
+      recipientType: 'utility',
+      sentDaysAgo,
+      expectedResponseInDays: uStats.avg,
+      responseDaysAgo,
+      status: responseDaysAgo !== null ? 'responded' : (sentDaysAgo > uStats.avg ? 'overdue' : 'pending'),
+    });
+  }
+
+  // Inspection request for projects at inspection stage
+  if (isCurrent('inspection') || isPast('inspection')) {
+    const sentDaysAgo = isCurrent('inspection') ? p.daysInStage : 12 + Math.floor(Math.random() * 8);
+    SUBMITTALS.push({
+      id: `s${subSeq++}`, projectId: p.id, type: 'inspection_request', recipient: p.ahj, recipientType: 'ahj',
+      sentDaysAgo, expectedResponseInDays: 7, responseDaysAgo: isPast('inspection') ? sentDaysAgo - 5 : null,
+      status: isPast('inspection') ? 'responded' : (sentDaysAgo > 7 ? 'overdue' : 'pending'),
+    });
+  }
+
+  // SGIP for rebate-stage projects
+  if (isCurrent('rebate')) {
+    SUBMITTALS.push({
+      id: `s${subSeq++}`, projectId: p.id, type: 'sgip_rsse', recipient: 'SGIP PA (CSE)', recipientType: 'rebate',
+      sentDaysAgo: Math.max(1, p.daysInStage - 2), expectedResponseInDays: 21, responseDaysAgo: null,
+      status: 'pending',
+    });
+  }
+});
 
 // ============================================================
 // PHOTOS
@@ -270,6 +475,7 @@ PROJECTS.forEach(proj => {
   }
 });
 
+
 // ============================================================
 // EMAILS
 // ============================================================
@@ -280,59 +486,37 @@ function buildEmails(p) {
   const customerEmail = `${p.name.toLowerCase().replace(/[^a-z]/g,'.')}@gmail.com`;
   const installerEmail = p.installer ? `ops@${p.installer.toLowerCase().replace(/[^a-z]/g,'')}.com` : null;
 
-  threads.push({
-    id: `${p.id}-e1`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.name} <${customerEmail}>`,
-    daysAgo: p.kickoffAgo,
-    subject: `Welcome to Haven — your ${p.systemType.toLowerCase()} install at ${p.city}`,
-    body: `Hi ${p.name.split(' ')[0]},\n\nGreat to have you onboard. I'm ${coord}, your install coordinator at Haven. We'll be managing your ${p.solar} kW ${p.battery ? `solar + ${p.battery} kWh battery` : 'solar'} project from kickoff through interconnection with ${p.utility}.\n\nFirst step is a site survey. Typical timelines for ${p.state} projects run 8-14 weeks.\n\nBest,\n${coord}`
-  });
-  threads.push({
-    id: `${p.id}-e2`, direction: 'inbound', from: `${p.name} <${customerEmail}>`, to: `${coord} <${coordEmail}>`,
-    daysAgo: p.kickoffAgo - 1,
-    subject: `Re: Welcome to Haven`,
-    body: `Thanks ${coord.split(' ')[0]}! Excited to get started. Mornings work best for the site survey.`
-  });
-  threads.push({
-    id: `${p.id}-e3`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.name} <${customerEmail}>`,
-    daysAgo: p.kickoffAgo - 2,
-    subject: `Site survey scheduled — ${p.surveyor}`,
-    body: `Hi ${p.name.split(' ')[0]},\n\nYour site survey is scheduled with ${p.surveyor} for next Tuesday, 8:30-10:30am.\n\n${coord.split(' ')[0]}`
-  });
+  threads.push({ id: `${p.id}-e1`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.name} <${customerEmail}>`,
+    daysAgo: p.kickoffAgo, subject: `Welcome to Haven — your ${p.systemType.toLowerCase()} install at ${p.city}`,
+    body: `Hi ${p.name.split(' ')[0]},\n\nGreat to have you onboard. I'm ${coord}, your install coordinator at Haven. We'll be managing your ${p.solar} kW ${p.battery ? `solar + ${p.battery} kWh battery` : 'solar'} project from kickoff through interconnection with ${p.utility}.\n\nBest,\n${coord}` });
+  threads.push({ id: `${p.id}-e2`, direction: 'inbound', from: `${p.name} <${customerEmail}>`, to: `${coord} <${coordEmail}>`,
+    daysAgo: p.kickoffAgo - 1, subject: `Re: Welcome to Haven`, body: `Thanks ${coord.split(' ')[0]}! Excited to get started. Mornings work best for the site survey.` });
+  threads.push({ id: `${p.id}-e3`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.name} <${customerEmail}>`,
+    daysAgo: p.kickoffAgo - 2, subject: `Site survey scheduled — ${p.surveyor}`,
+    body: `Hi ${p.name.split(' ')[0]},\n\nYour site survey is scheduled with ${p.surveyor} for next Tuesday, 8:30-10:30am.\n\n${coord.split(' ')[0]}` });
+
   if (['permitting','scheduling','installation','inspection','interconnection','rebate','completed'].includes(p.stage)) {
-    threads.push({
-      id: `${p.id}-e4`, direction: 'inbound', from: `${p.ahj} <permits@${p.ahj.toLowerCase().replace(/[^a-z]/g,'')}.gov>`, to: `Haven Permitting <permits@havenenergy.com>`,
-      daysAgo: Math.max(1, p.daysInStage + 3),
-      subject: `${p.ahj}: Permit application received — ${p.projectNumber}`,
-      body: `Confirmation from ${p.ahj}: permit application received. Expected review window ${p.state === 'CA' ? '2-3 weeks' : '4-5 weeks'}.`
-    });
+    threads.push({ id: `${p.id}-e4`, direction: 'inbound', from: `${p.ahj} <permits@${p.ahj.toLowerCase().replace(/[^a-z]/g,'')}.gov>`, to: `Haven Permitting <permits@havenenergy.com>`,
+      daysAgo: Math.max(1, p.daysInStage + 3), subject: `${p.ahj}: Permit application received`,
+      body: `Confirmation from ${p.ahj}: permit application received. Expected review window 2-4 weeks.` });
   }
   if (p.slaStatus === 'breached' && p.stage === 'permitting') {
-    threads.push({
-      id: `${p.id}-e5`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.ahj} <permits@${p.ahj.toLowerCase().replace(/[^a-z]/g,'')}.gov>`,
-      daysAgo: 3,
-      subject: `Status check: Permit for ${p.name}`,
-      body: `Hi team,\n\nFollowing up on the permit submitted for ${p.name}. We're now ${p.daysInStage} days in, past typical review timelines. Any update on plan reviewer assignment?\n\n${coord}`
-    });
-    threads.push({
-      id: `${p.id}-e6`, direction: 'inbound', from: `${p.ahj} <permits@${p.ahj.toLowerCase().replace(/[^a-z]/g,'')}.gov>`, to: `${coord} <${coordEmail}>`,
-      daysAgo: 2,
-      subject: `Re: Status check`,
-      body: `${coord.split(' ')[0]}, plan reviewer assigned today. First-round comments by end of week.`
-    });
+    threads.push({ id: `${p.id}-e5`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.ahj} <permits@${p.ahj.toLowerCase().replace(/[^a-z]/g,'')}.gov>`,
+      daysAgo: 3, subject: `Status check: Permit for ${p.name}`,
+      body: `Hi team,\n\nFollowing up on the permit submitted for ${p.name}. We're now ${p.daysInStage} days in. Any update?\n\n${coord}` });
+  }
+  if (p.waitingOn === 'customer') {
+    threads.push({ id: `${p.id}-ecust`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.name} <${customerEmail}>`,
+      daysAgo: p.customerLastReplyDaysAgo || 4,
+      subject: p.stage === 'design' ? `Design ready for your approval` : p.stage === 'scheduling' ? `Confirming your install date` : `Quick question on your project`,
+      body: `Hi ${p.name.split(' ')[0]},\n\n${p.stage === 'design' ? 'Attached is the design for your review. Let me know if any changes.' : p.stage === 'scheduling' ? 'Can you confirm the proposed install date works for you?' : 'Quick question when you have a moment.'}\n\nThanks,\n${coord.split(' ')[0]}` });
   }
   if (p.installer && ['scheduling','installation','inspection','interconnection','completed'].includes(p.stage)) {
-    threads.push({
-      id: `${p.id}-e7`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.installer} <${installerEmail}>`,
-      daysAgo: Math.max(1, p.daysInStage + 1),
-      subject: `Install assignment — ${p.name} (${p.city})`,
-      body: `Assigning the ${p.name} install to you. ${p.solar} kW solar, ${p.battery ? `${p.battery} kWh battery` : 'no battery'}, ${p.utility} territory. Target install window: next 2 weeks.`
-    });
-    threads.push({
-      id: `${p.id}-e8`, direction: 'inbound', from: `${p.installer} <${installerEmail}>`, to: `${coord} <${coordEmail}>`,
-      daysAgo: Math.max(0, p.daysInStage),
-      subject: `Re: Install assignment`,
-      body: `Got it. Crew lead Jorge. We can hit this ${p.stage === 'installation' || p.stage === 'completed' ? 'this week' : 'next week'}.`
-    });
+    threads.push({ id: `${p.id}-e7`, direction: 'outbound', from: `${coord} <${coordEmail}>`, to: `${p.installer} <${installerEmail}>`,
+      daysAgo: Math.max(1, p.daysInStage + 1), subject: `Install assignment — ${p.name}`,
+      body: `Assigning the ${p.name} install to you. ${p.solar} kW solar, ${p.battery ? `${p.battery} kWh battery` : 'no battery'}, ${p.utility}.` });
+    threads.push({ id: `${p.id}-e8`, direction: 'inbound', from: `${p.installer} <${installerEmail}>`, to: `${coord} <${coordEmail}>`,
+      daysAgo: Math.max(0, p.daysInStage), subject: `Re: Install assignment`, body: `Got it. Crew lead Jorge.` });
   }
   return threads.sort((a, b) => b.daysAgo - a.daysAgo);
 }
@@ -341,33 +525,41 @@ function buildEmails(p) {
 // STATE
 // ============================================================
 let viewMode = 'internal';
-let currentCoord = 'Shane Brennan'; // default to one coordinator
+let currentCoord = 'Shane Brennan';
 let currentView = 'pipeline';
 let photoFilter = 'all';
+let pipelineFilter = 'all'; // all | ready_to_advance | at_risk
+let taskBatchMode = false;
 let assignedInstallers = {};
 let assignedCoords = {};
+let completedTasks = new Set();
 const main = document.getElementById('main');
 
-function getInstaller(p) {
-  return assignedInstallers[p.id] !== undefined ? assignedInstallers[p.id] : p.installer;
-}
-function getCoord(p) {
-  return assignedCoords[p.id] !== undefined ? assignedCoords[p.id] : p.coord;
-}
+function getInstaller(p) { return assignedInstallers[p.id] !== undefined ? assignedInstallers[p.id] : p.installer; }
+function getCoord(p) { return assignedCoords[p.id] !== undefined ? assignedCoords[p.id] : p.coord; }
 
-// Projects filtered by mode + coordinator
 function visibleProjects() {
-  if (viewMode === 'installer') {
-    return PROJECTS.filter(p => getInstaller(p) === CURRENT_INSTALLER);
-  }
-  // internal — apply coordinator filter
+  if (viewMode === 'installer') return PROJECTS.filter(p => getInstaller(p) === CURRENT_INSTALLER);
   if (currentCoord === '__all__') return PROJECTS;
   return PROJECTS.filter(p => getCoord(p) === currentCoord);
 }
 
-// ============================================================
-// NAVIGATION
-// ============================================================
+// Which projects are "ready to advance"?
+// Definition: at current stage for > 0 days, all auto-generated tasks for this stage are done, not already at end
+function isReadyToAdvance(p) {
+  if (p.stage === 'completed' || p.stage === 'rebate') return false;
+  const stageTasks = TASKS.filter(t => t.projectId === p.id && t.stage === p.stage && t.autoGenerated);
+  if (stageTasks.length === 0) return false;
+  const openCount = stageTasks.filter(t => !completedTasks.has(t.id) && t.status !== 'done').length;
+  return openCount === 0;
+}
+
+// Customer response overdue?
+function customerSilenceDays(p) {
+  if (p.waitingOn !== 'customer') return 0;
+  return p.customerLastReplyDaysAgo || 0;
+}
+
 function getCoordAttentionCount(name) {
   return PROJECTS.filter(p =>
     p.stage !== 'completed' &&
@@ -376,19 +568,33 @@ function getCoordAttentionCount(name) {
   ).length;
 }
 
+function getReadyToAdvanceCount(scope = 'current') {
+  const list = scope === 'current' ? visibleProjects() : PROJECTS;
+  return list.filter(p => isReadyToAdvance(p)).length;
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
 const NAV_INTERNAL = [
-  { view: 'home', label: 'Home', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>', showAttentionCount: true },
+  { group: 'Work' },
+  { view: 'home', label: 'Home', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>' },
   { view: 'pipeline', label: 'Pipeline', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>' },
   { view: 'projects', label: 'Projects', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>' },
   { view: 'tasks', label: 'Tasks', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>' },
+  { group: 'Tracking' },
+  { view: 'submittals', label: 'Submittals', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>' },
+  { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
   { view: 'inbox', label: 'Inbox', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>' },
   { view: 'photos', label: 'Photos', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
-  { view: 'leadership', label: 'Metrics', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>' },
+  { group: 'Leadership' },
+  { view: 'metrics', label: 'Metrics', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>' },
 ];
 
 const NAV_INSTALLER = [
   { view: 'jobs', label: 'My Jobs', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>' },
   { view: 'tasks', label: 'My Tasks', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>' },
+  { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
   { view: 'inbox', label: 'Messages', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>' },
   { view: 'photos', label: 'Photos', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
 ];
@@ -397,22 +603,21 @@ function renderNav() {
   const nav = document.getElementById('nav');
   const items = viewMode === 'installer' ? NAV_INSTALLER : NAV_INTERNAL;
   nav.innerHTML = items.map(item => {
+    if (item.group) return `<div class="nav-group-label">${item.group}</div>`;
     let countBadge = '';
-    if (item.showAttentionCount && viewMode === 'internal') {
+    if (item.view === 'home' && viewMode === 'internal') {
       const cnt = getCoordAttentionCount(currentCoord);
       if (cnt > 0) countBadge = `<span class="count-badge">${cnt}</span>`;
     }
-    return `
-      <div class="nav-link ${currentView === item.view ? 'active' : ''}" data-view="${item.view}">
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">${item.icon}</svg>
-        <span>${item.label}</span>
-        ${countBadge}
-      </div>
-    `;
+    return `<div class="nav-link ${currentView === item.view ? 'active' : ''}" data-view="${item.view}">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">${item.icon}</svg>
+      <span>${item.label}</span>${countBadge}
+    </div>`;
   }).join('');
   nav.querySelectorAll('.nav-link').forEach(el => {
     el.addEventListener('click', () => {
       currentView = el.dataset.view;
+      pipelineFilter = 'all';
       renderNav();
       render();
     });
@@ -438,28 +643,20 @@ function renderCoordSelector() {
   }
 }
 
-// Event handlers
 document.getElementById('toggleInternal').addEventListener('click', () => setMode('internal'));
 document.getElementById('toggleInstaller').addEventListener('click', () => setMode('installer'));
 document.getElementById('coordSelect').addEventListener('change', (e) => {
   currentCoord = e.target.value;
-  renderCoordSelector();
-  renderNav();
-  render();
+  renderCoordSelector(); renderNav(); render();
 });
 
 function setMode(mode) {
   viewMode = mode;
   document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('coordSelector').style.display = mode === 'installer' ? 'none' : 'block';
-  if (mode === 'installer') {
-    currentView = 'jobs';
-  } else {
-    currentView = 'pipeline';
-  }
-  renderNav();
-  render();
-  closeModal();
+  currentView = mode === 'installer' ? 'jobs' : 'pipeline';
+  pipelineFilter = 'all';
+  renderNav(); render(); closeModal();
 }
 
 function render() {
@@ -469,35 +666,34 @@ function render() {
     else if (currentView === 'pipeline') renderPipeline();
     else if (currentView === 'projects') renderProjects();
     else if (currentView === 'tasks') renderTasks(false);
+    else if (currentView === 'submittals') renderSubmittals();
+    else if (currentView === 'schedule') renderSchedule();
     else if (currentView === 'inbox') renderInbox(false);
     else if (currentView === 'photos') renderPhotos(false);
-    else if (currentView === 'leadership') renderLeadership();
+    else if (currentView === 'metrics') renderMetrics();
   } else {
     if (currentView === 'jobs') renderInstallerJobs();
     else if (currentView === 'tasks') renderTasks(true);
+    else if (currentView === 'schedule') renderSchedule();
     else if (currentView === 'inbox') renderInbox(true);
     else if (currentView === 'photos') renderPhotos(true);
   }
   main.scrollTop = 0;
 }
 
-// ============================================================
-// HOME — attention queue
-// ============================================================
 
+// ============================================================
+// HOME — lean attention queue + response tracker + ready-to-advance
+// ============================================================
 function renderHome() {
   const visible = visibleProjects().filter(p => p.stage !== 'completed');
   const isLeadership = currentCoord === '__all__';
   const displayName = isLeadership ? 'Leadership' : currentCoord.split(' ')[0];
 
-  // Attention queue: everything that needs looking at, sorted by risk score
   const attention = visible.filter(p => p.riskLevel !== 'low').sort((a, b) => b.risk - a.risk);
+  const readyToAdvance = visible.filter(p => isReadyToAdvance(p));
+  const customerSilent = visible.filter(p => customerSilenceDays(p) >= CUSTOMER_SILENCE_WARNING);
 
-  // Waiting-on counts (small widget)
-  const waitingOnCounts = {};
-  visible.forEach(p => { waitingOnCounts[p.waitingOn] = (waitingOnCounts[p.waitingOn] || 0) + 1; });
-
-  // One primary reason per project — the most important thing to see
   function primaryReason(p) {
     if (p.slaStatus === 'breached') return { text: `${p.daysOverdue}d past SLA`, tone: 'danger' };
     if (!p.nextAction) return { text: 'No next action', tone: 'danger' };
@@ -519,66 +715,77 @@ function renderHome() {
             <span class="font-medium truncate">${p.name}</span>
             <span class="text-xs text-haven-muted">· ${STAGE_LABELS[p.stage]}</span>
           </div>
-          <div class="text-xs text-haven-muted mt-0.5 truncate">
-            ${p.nextAction || '<span class="italic text-haven-danger">No next action set</span>'}
-          </div>
+          <div class="text-xs text-haven-muted mt-0.5 truncate">${p.nextAction || '<span class="italic text-haven-danger">No next action set</span>'}</div>
         </div>
         <div class="text-right shrink-0">
           <div class="text-sm font-medium ${toneClass}">${reason.text}</div>
           ${isLeadership ? `<div class="text-xs text-haven-muted mt-0.5">${getCoord(p).split(' ')[0]}</div>` : ''}
         </div>
-      </div>
-    `;
+      </div>`;
   };
 
   main.innerHTML = `
     <div class="p-6 max-w-4xl">
       <div class="mb-5">
-        <h1 class="font-serif text-2xl font-bold text-haven-forest">
-          ${isLeadership ? 'Leadership home' : `Good morning, ${displayName}`}
-        </h1>
-        <p class="text-sm text-haven-muted mt-1">
-          ${visible.length} active · ${attention.length === 0 ? 'nothing flagged' : `${attention.length} need${attention.length === 1 ? 's' : ''} attention`}
-        </p>
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">${isLeadership ? 'Leadership home' : `Good morning, ${displayName}`}</h1>
+        <p class="text-sm text-haven-muted mt-1">${visible.length} active · ${attention.length === 0 ? 'nothing flagged' : `${attention.length} need${attention.length === 1 ? 's' : ''} attention`}${readyToAdvance.length > 0 ? ` · <span class="text-haven-ok font-medium">${readyToAdvance.length} ready to advance</span>` : ''}</p>
       </div>
+
+      ${readyToAdvance.length > 0 ? `
+        <div class="card p-0 overflow-hidden mb-5" style="border-left: 4px solid #2F7A3E;">
+          <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between">
+            <div>
+              <h2 class="font-serif font-bold text-haven-ok">Ready to advance (${readyToAdvance.length})</h2>
+              <div class="text-xs text-haven-muted mt-0.5">All stage tasks complete — move these forward now</div>
+            </div>
+            <button class="btn btn-accent text-xs">Advance all</button>
+          </div>
+          ${readyToAdvance.slice(0, 5).map(p => `
+            <div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-center gap-4" data-project-id="${p.id}">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="font-medium truncate">${p.name}</span>
+                  <span class="text-xs text-haven-muted">· in ${STAGE_LABELS[p.stage]} ${p.daysInStage}d</span>
+                </div>
+                <div class="text-xs text-haven-ok mt-0.5">→ ready for ${STAGE_LABELS[STAGE_ORDER[STAGE_ORDER.indexOf(p.stage) + 1]]}</div>
+              </div>
+              ${isLeadership ? `<div class="text-xs text-haven-muted">${getCoord(p).split(' ')[0]}</div>` : ''}
+            </div>`).join('')}
+        </div>
+      ` : ''}
 
       <div class="card p-0 overflow-hidden mb-5">
         <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between">
           <h2 class="font-serif font-bold text-haven-forest">Needs attention</h2>
           <span class="text-xs text-haven-muted">Sorted by risk</span>
         </div>
-        ${attention.length === 0
-          ? '<div class="px-4 py-8 text-center text-sm text-haven-muted">All projects have next actions and recent activity.</div>'
-          : attention.map(attentionRow).join('')}
+        ${attention.length === 0 ? '<div class="px-4 py-8 text-center text-sm text-haven-muted">All projects have next actions and recent activity.</div>' : attention.map(attentionRow).join('')}
       </div>
 
-      <div class="grid grid-cols-2 gap-5">
-        <div class="card">
-          <h3 class="font-serif font-bold text-haven-forest mb-3 text-sm">What's blocking</h3>
-          <div class="space-y-2 text-sm">
-            ${['ahj', 'utility', 'customer', 'installer', 'internal'].filter(k => waitingOnCounts[k]).map(key => `
-              <div class="flex items-center justify-between">
-                <span class="text-haven-muted">${WAITING_ON_LABELS[key]}</span>
-                <span class="font-medium">${waitingOnCounts[key]}</span>
-              </div>
-            `).join('') || '<div class="text-haven-muted">No blockers</div>'}
+      ${customerSilent.length > 0 ? `
+        <div class="card p-0 overflow-hidden mb-5">
+          <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between">
+            <h2 class="font-serif font-bold text-haven-forest">Waiting on customer response</h2>
+            <span class="text-xs text-haven-muted">${customerSilent.length} customers</span>
           </div>
-        </div>
-
-        ${isLeadership ? renderCoordLoadMini() : `
-          <div class="card">
-            <h3 class="font-serif font-bold text-haven-forest mb-3 text-sm">My pipeline</h3>
-            <div class="space-y-2 text-sm">
-              ${STAGE_ORDER.filter(s => visible.filter(p => p.stage === s).length > 0).map(s => `
-                <div class="flex items-center justify-between">
-                  <span class="text-haven-muted">${STAGE_LABELS[s]}</span>
-                  <span class="font-medium">${visible.filter(p => p.stage === s).length}</span>
+          ${customerSilent.sort((a, b) => customerSilenceDays(b) - customerSilenceDays(a)).map(p => {
+            const d = customerSilenceDays(p);
+            const tone = d >= CUSTOMER_SILENCE_DANGER ? 'danger' : 'warn';
+            return `
+              <div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-center gap-4" data-project-id="${p.id}">
+                <div class="flex-1 min-w-0">
+                  <div class="font-medium truncate">${p.name}</div>
+                  <div class="text-xs text-haven-muted mt-0.5 truncate">In ${STAGE_LABELS[p.stage]} · ${p.nextAction || 'waiting on reply'}</div>
                 </div>
-              `).join('')}
-            </div>
-          </div>
-        `}
-      </div>
+                <div class="text-right shrink-0">
+                  <div class="text-sm font-medium text-haven-${tone}">Silent ${d}d</div>
+                  <button class="text-xs text-haven-forest hover:underline mt-0.5" onclick="event.stopPropagation(); alert('Nudge email drafted for ${p.name}')">Nudge</button>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>` : ''}
+
+      ${isLeadership ? renderCoordLoadMini() : ''}
     </div>
   `;
   attachProjectHandlers();
@@ -604,51 +811,50 @@ function renderCoordLoadMini() {
           </div>
         `).join('')}
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 window.switchToCoord = (c) => {
   currentCoord = c;
-  renderCoordSelector();
-  renderNav();
-  render();
+  renderCoordSelector(); renderNav(); render();
 };
 
 // ============================================================
-// PIPELINE
+// PIPELINE — kanban with ready-to-advance filter
 // ============================================================
 function renderPipeline() {
-  const active = visibleProjects().filter(p => p.stage !== 'completed');
-  const overdue = active.filter(p => p.slaStatus === 'breached').length;
-  const atRisk = active.filter(p => p.riskLevel === 'high').length;
+  let active = visibleProjects().filter(p => p.stage !== 'completed');
+
+  if (pipelineFilter === 'ready_to_advance') {
+    active = active.filter(p => isReadyToAdvance(p));
+  } else if (pipelineFilter === 'at_risk') {
+    active = active.filter(p => p.riskLevel === 'high');
+  }
+
+  const readyCount = visibleProjects().filter(p => p.stage !== 'completed' && isReadyToAdvance(p)).length;
+  const atRiskCount = visibleProjects().filter(p => p.stage !== 'completed' && p.riskLevel === 'high').length;
+  const totalCount = visibleProjects().filter(p => p.stage !== 'completed').length;
+
   const byStage = {};
   STAGE_ORDER.forEach(s => byStage[s] = active.filter(p => p.stage === s));
-
-  const statCard = (label, value, tone) => {
-    const toneBg = tone === 'danger' ? 'bg-haven-danger/5 border-haven-danger/30' : tone === 'warn' ? 'bg-haven-warn/5 border-haven-warn/30' : 'bg-white border-haven-border';
-    const toneText = tone === 'danger' ? 'text-haven-danger' : tone === 'warn' ? 'text-haven-warn' : 'text-haven-ink';
-    return `<div class="px-4 py-2 rounded-md border ${toneBg}">
-      <div class="text-xs text-haven-muted uppercase tracking-wide">${label}</div>
-      <div class="font-serif font-bold text-xl ${toneText}">${value}</div>
-    </div>`;
-  };
 
   const coordLabel = currentCoord === '__all__' ? 'All coordinators' : currentCoord;
 
   main.innerHTML = `
     <div class="p-6">
-      <div class="flex items-center justify-between mb-6 max-w-[1600px]">
+      <div class="flex items-center justify-between mb-4 max-w-[1600px]">
         <div>
           <h1 class="font-serif text-2xl font-bold text-haven-forest">Install Pipeline</h1>
-          <p class="text-sm text-haven-muted mt-1">${coordLabel} · ${active.length} active</p>
-        </div>
-        <div class="flex gap-3">
-          ${statCard('Active', active.length, 'neutral')}
-          ${statCard('At Risk', atRisk, atRisk > 0 ? 'warn' : undefined)}
-          ${statCard('Past SLA', overdue, overdue > 0 ? 'danger' : undefined)}
+          <p class="text-sm text-haven-muted mt-1">${coordLabel}</p>
         </div>
       </div>
+
+      <div class="flex items-center gap-2 mb-5 flex-wrap">
+        <button class="filter-chip ${pipelineFilter === 'all' ? 'active' : ''}" onclick="setPipelineFilter('all')">All <span class="opacity-70 ml-1">${totalCount}</span></button>
+        <button class="filter-chip ${pipelineFilter === 'ready_to_advance' ? 'active' : ''}" onclick="setPipelineFilter('ready_to_advance')" style="${pipelineFilter !== 'ready_to_advance' && readyCount > 0 ? 'border-color:#2F7A3E;color:#2F7A3E;' : ''}">✓ Ready to advance <span class="opacity-70 ml-1">${readyCount}</span></button>
+        <button class="filter-chip ${pipelineFilter === 'at_risk' ? 'active' : ''}" onclick="setPipelineFilter('at_risk')" style="${pipelineFilter !== 'at_risk' && atRiskCount > 0 ? 'border-color:#C44545;color:#C44545;' : ''}">⚠ At risk <span class="opacity-70 ml-1">${atRiskCount}</span></button>
+      </div>
+
       <div class="overflow-x-auto pb-4">
         <div class="grid gap-3 min-w-[1400px]" style="grid-template-columns: repeat(8, minmax(0, 1fr));">
           ${STAGE_ORDER.map(stage => `
@@ -668,14 +874,20 @@ function renderPipeline() {
   attachProjectHandlers();
 }
 
+window.setPipelineFilter = (f) => { pipelineFilter = f; render(); };
+
 function pipelineCard(p) {
-  const borderClass = p.slaStatus === 'breached' ? 'border-l-4 border-l-haven-danger' : p.slaStatus === 'approaching' ? 'border-l-4 border-l-haven-warn' : !p.nextAction ? 'border-l-4 border-l-haven-warn' : '';
+  const ready = isReadyToAdvance(p);
+  const borderClass = ready ? 'border-l-4 border-l-haven-ok'
+    : p.slaStatus === 'breached' ? 'border-l-4 border-l-haven-danger'
+    : p.slaStatus === 'approaching' ? 'border-l-4 border-l-haven-warn'
+    : !p.nextAction ? 'border-l-4 border-l-haven-warn' : '';
   const coord = getCoord(p);
   const showCoord = currentCoord === '__all__';
 
-  // One primary reason line
   let reason = '';
-  if (p.slaStatus === 'breached') reason = `<span class="text-haven-danger font-medium">${p.daysOverdue}d past SLA</span>`;
+  if (ready) reason = `<span class="text-haven-ok font-medium">✓ Ready to advance</span>`;
+  else if (p.slaStatus === 'breached') reason = `<span class="text-haven-danger font-medium">${p.daysOverdue}d past SLA</span>`;
   else if (!p.nextAction) reason = `<span class="text-haven-warn font-medium">No next action</span>`;
   else if (p.nextActionDueInDays !== null && p.nextActionDueInDays < 0) reason = `<span class="text-haven-warn font-medium">Action ${-p.nextActionDueInDays}d late</span>`;
   else if (p.lastTouchedDaysAgo >= IDLE_DANGER) reason = `<span class="text-haven-warn">Idle ${p.lastTouchedDaysAgo}d</span>`;
@@ -688,7 +900,7 @@ function pipelineCard(p) {
       </div>
       <div class="text-xs text-haven-muted truncate mt-0.5">${p.city}, ${p.state}</div>
       ${reason ? `<div class="text-xs mt-2">${reason}</div>` : ''}
-      ${p.nextAction ? `<div class="text-[11px] text-haven-muted mt-2 pt-2 border-t border-haven-border truncate">${p.nextAction}</div>` : ''}
+      ${p.nextAction && !ready ? `<div class="text-[11px] text-haven-muted mt-2 pt-2 border-t border-haven-border truncate">${p.nextAction}</div>` : ''}
     </div>`;
 }
 
@@ -698,7 +910,9 @@ function pipelineCard(p) {
 function renderProjects() {
   const list = visibleProjects();
   const rows = list.map(p => {
+    const ready = isReadyToAdvance(p);
     const slaBadge = p.stage === 'completed' ? '<span class="badge badge-neutral">completed</span>'
+      : ready ? '<span class="badge badge-ok">ready to advance</span>'
       : p.slaStatus === 'breached' ? `<span class="badge badge-danger">${p.daysOverdue}d over</span>`
       : p.slaStatus === 'approaching' ? `<span class="badge badge-warn">approaching</span>`
       : `<span class="badge badge-ok">on track</span>`;
@@ -731,7 +945,7 @@ function renderProjects() {
             <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
               <th class="px-3 py-2.5">Risk</th><th class="px-3 py-2.5">#</th><th class="px-3 py-2.5">Customer</th>
               <th class="px-3 py-2.5">Location</th><th class="px-3 py-2.5">Stage</th><th class="px-3 py-2.5">Coord</th>
-              <th class="px-3 py-2.5">Installer</th><th class="px-3 py-2.5">SLA</th><th class="px-3 py-2.5">Next action</th><th class="px-3 py-2.5">Last touched</th>
+              <th class="px-3 py-2.5">Installer</th><th class="px-3 py-2.5">Status</th><th class="px-3 py-2.5">Next action</th><th class="px-3 py-2.5">Last touched</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -742,17 +956,294 @@ function renderProjects() {
   attachProjectHandlers();
 }
 
+
 // ============================================================
-// INSTALLER JOBS
+// TASKS — with batch mode grouping
 // ============================================================
+function renderTasks(installerOnly) {
+  const visible = visibleProjects();
+  const visibleIds = new Set(visible.map(p => p.id));
+  let tasks = TASKS.filter(t => visibleIds.has(t.projectId) && (installerOnly ? t.ownerType === 'installer' : t.ownerType === 'internal'));
+
+  const overdueCount = tasks.filter(t => t.dueInDays < 0 && t.status !== 'done' && !completedTasks.has(t.id)).length;
+  const dueTodayCount = tasks.filter(t => t.dueInDays === 0 && t.status !== 'done' && !completedTasks.has(t.id)).length;
+  const thisWeekCount = tasks.filter(t => t.dueInDays > 0 && t.dueInDays <= 7 && t.status !== 'done' && !completedTasks.has(t.id)).length;
+
+  // Batch mode: group tasks by normalized title (same action across many projects)
+  let bodyHtml;
+  if (taskBatchMode && !installerOnly) {
+    const groups = {};
+    tasks.filter(t => t.status !== 'done' && !completedTasks.has(t.id)).forEach(t => {
+      const key = t.title.toLowerCase().replace(/[#0-9].*/g, '').replace(/[^a-z ]/g, '').trim();
+      if (!groups[key]) groups[key] = { title: t.title, items: [] };
+      groups[key].items.push(t);
+    });
+    const sortedGroups = Object.values(groups).filter(g => g.items.length >= 2).sort((a, b) => b.items.length - a.items.length);
+    bodyHtml = sortedGroups.length === 0 ? '<div class="p-8 text-center text-haven-muted text-sm">No recurring tasks to batch. Switch off batch mode for the full list.</div>' : sortedGroups.map(g => `
+      <div class="border-b border-haven-border">
+        <div class="bg-haven-bg px-4 py-2 flex items-center justify-between">
+          <div class="font-medium text-sm">${g.title} <span class="text-haven-muted font-normal">· ${g.items.length} projects</span></div>
+          <button class="btn btn-accent text-xs">Batch complete</button>
+        </div>
+        ${g.items.map(t => {
+          const proj = PROJECTS.find(p => p.id === t.projectId);
+          const dueText = t.dueInDays < 0 ? `${-t.dueInDays}d late` : t.dueInDays === 0 ? 'today' : `in ${t.dueInDays}d`;
+          return `
+            <div class="px-4 py-2 flex items-center gap-3 hover:bg-haven-bg cursor-pointer" data-project-id="${proj.id}">
+              <div class="checkbox" onclick="event.stopPropagation(); toggleTask('${t.id}')">${completedTasks.has(t.id) ? '✓' : ''}</div>
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">${proj.name}</div>
+                <div class="text-xs text-haven-muted truncate">${proj.city}, ${proj.state} · ${STAGE_LABELS[t.stage]}</div>
+              </div>
+              <div class="text-xs ${t.dueInDays < 0 ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${dueText}</div>
+            </div>`;
+        }).join('')}
+      </div>
+    `).join('');
+  } else {
+    const sorted = [...tasks].sort((a, b) => a.dueInDays - b.dueInDays);
+    bodyHtml = `
+      <table class="w-full text-sm">
+        <thead class="bg-haven-bg border-b border-haven-border">
+          <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
+            <th class="px-4 py-2.5 w-8"></th>
+            <th class="px-4 py-2.5">Task</th>
+            <th class="px-4 py-2.5">Project</th>
+            ${installerOnly ? '' : '<th class="px-4 py-2.5">Coord</th>'}
+            <th class="px-4 py-2.5">Due</th>
+          </tr>
+        </thead>
+        <tbody>${sorted.length === 0 ? `<tr><td colspan="${installerOnly ? 4 : 5}" class="px-4 py-8 text-center text-haven-muted">No tasks</td></tr>` : sorted.map(t => {
+          const proj = PROJECTS.find(p => p.id === t.projectId);
+          const overdue = t.dueInDays < 0;
+          const dueText = t.dueInDays < 0 ? `${-t.dueInDays}d late` : t.dueInDays === 0 ? 'today' : `in ${t.dueInDays}d`;
+          const done = completedTasks.has(t.id) || t.status === 'done';
+          return `
+            <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${proj.id}">
+              <td class="px-4 py-2.5"><div class="checkbox ${done ? 'checked' : ''}" onclick="event.stopPropagation(); toggleTask('${t.id}')">${done ? '✓' : ''}</div></td>
+              <td class="px-4 py-2.5">
+                <div class="font-medium ${done ? 'line-through text-haven-muted' : ''}">${t.title}</div>
+                <div class="text-xs text-haven-muted mt-0.5">${STAGE_LABELS[t.stage]}${t.autoGenerated ? ' · auto' : ''}</div>
+              </td>
+              <td class="px-4 py-2.5 text-haven-forest">${proj.name}</td>
+              ${installerOnly ? '' : `<td class="px-4 py-2.5">${avatar(proj.coord, 20)} <span class="text-xs ml-1 align-middle">${proj.coord.split(' ')[0]}</span></td>`}
+              <td class="px-4 py-2.5 ${overdue && !done ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${dueText}</td>
+            </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+  }
+
+  main.innerHTML = `
+    <div class="p-6 max-w-6xl">
+      <div class="flex items-center justify-between mb-5">
+        <div>
+          <h1 class="font-serif text-2xl font-bold text-haven-forest">${installerOnly ? 'My Tasks' : 'Tasks'}</h1>
+          <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${tasks.length} total</p>
+        </div>
+        <div class="flex items-center gap-2">
+          ${!installerOnly ? `<button class="filter-chip ${taskBatchMode ? 'active' : ''}" onclick="toggleBatchMode()">Batch mode</button>` : ''}
+          <button class="btn btn-primary text-sm">+ New task</button>
+        </div>
+      </div>
+
+      <div class="flex gap-3 mb-5">
+        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Overdue</div><div class="font-serif font-bold text-lg text-haven-danger">${overdueCount}</div></div>
+        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Today</div><div class="font-serif font-bold text-lg">${dueTodayCount}</div></div>
+        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">This week</div><div class="font-serif font-bold text-lg">${thisWeekCount}</div></div>
+      </div>
+
+      <div class="card p-0 overflow-hidden">${bodyHtml}</div>
+    </div>
+  `;
+  attachProjectHandlers();
+}
+
+window.toggleBatchMode = () => { taskBatchMode = !taskBatchMode; render(); };
+window.toggleTask = (id) => {
+  if (completedTasks.has(id)) completedTasks.delete(id);
+  else completedTasks.add(id);
+  render();
+};
+
+// ============================================================
+// SUBMITTALS LOG
+// ============================================================
+function renderSubmittals() {
+  const visible = visibleProjects();
+  const visibleIds = new Set(visible.map(p => p.id));
+  const subs = SUBMITTALS.filter(s => visibleIds.has(s.projectId));
+
+  const overdue = subs.filter(s => s.status === 'overdue');
+  const pending = subs.filter(s => s.status === 'pending');
+  const responded = subs.filter(s => s.status === 'responded');
+
+  // Group by recipient for stats view
+  const byRecipient = {};
+  SUBMITTALS.filter(s => visibleIds.has(s.projectId)).forEach(s => {
+    if (!byRecipient[s.recipient]) byRecipient[s.recipient] = { sent: 0, pending: 0, overdue: 0, responded: 0, type: s.recipientType };
+    byRecipient[s.recipient].sent++;
+    byRecipient[s.recipient][s.status]++;
+  });
+
+  const submittalRow = (s) => {
+    const proj = PROJECTS.find(p => p.id === s.projectId);
+    const stats = EXTERNAL_PARTY_STATS[s.recipient];
+    const statusBadge = s.status === 'overdue' ? `<span class="badge badge-danger">${s.sentDaysAgo - s.expectedResponseInDays}d overdue</span>`
+      : s.status === 'responded' ? `<span class="badge badge-ok">responded</span>`
+      : `<span class="badge badge-neutral">pending</span>`;
+    return `
+      <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${proj.id}">
+        <td class="px-4 py-2.5 font-medium text-haven-forest">${proj.name}</td>
+        <td class="px-4 py-2.5 text-sm">${SUBMITTAL_TYPES[s.type]}</td>
+        <td class="px-4 py-2.5 text-sm">${s.recipient}</td>
+        <td class="px-4 py-2.5 text-xs text-haven-muted">${s.sentDaysAgo}d ago</td>
+        <td class="px-4 py-2.5 text-xs text-haven-muted">${stats ? `~${stats.median}d (median)` : `${s.expectedResponseInDays}d`}</td>
+        <td class="px-4 py-2.5">${statusBadge}</td>
+      </tr>`;
+  };
+
+  main.innerHTML = `
+    <div class="p-6 max-w-6xl">
+      <div class="mb-5">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Submittals Log</h1>
+        <p class="text-sm text-haven-muted mt-1">Every document sent to external parties · ${subs.length} total</p>
+      </div>
+
+      <div class="flex gap-3 mb-5">
+        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Overdue</div><div class="font-serif font-bold text-lg text-haven-danger">${overdue.length}</div></div>
+        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Pending</div><div class="font-serif font-bold text-lg">${pending.length}</div></div>
+        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Responded</div><div class="font-serif font-bold text-lg text-haven-ok">${responded.length}</div></div>
+      </div>
+
+      <div class="card p-0 overflow-hidden mb-6">
+        <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between">
+          <h2 class="font-serif font-bold text-haven-forest">Open submittals</h2>
+          <span class="text-xs text-haven-muted">Sorted by urgency</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-haven-bg border-b border-haven-border">
+            <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
+              <th class="px-4 py-2.5">Project</th><th class="px-4 py-2.5">Type</th><th class="px-4 py-2.5">Recipient</th>
+              <th class="px-4 py-2.5">Sent</th><th class="px-4 py-2.5">Expected</th><th class="px-4 py-2.5">Status</th>
+            </tr>
+          </thead>
+          <tbody>${[...overdue, ...pending].map(submittalRow).join('')}</tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2 class="font-serif font-bold text-haven-forest mb-3">Response times by AHJ / utility</h2>
+        <p class="text-xs text-haven-muted mb-4">Based on historical data — use to set expectations and prioritize escalations</p>
+        <table class="w-full text-sm">
+          <thead><tr class="text-left text-xs text-haven-muted uppercase tracking-wide border-b border-haven-border">
+            <th class="py-2">Recipient</th><th class="py-2">Type</th><th class="py-2">Median days</th><th class="py-2">Avg</th><th class="py-2">Sample</th><th class="py-2">Current queue</th>
+          </tr></thead>
+          <tbody>
+            ${Object.entries(EXTERNAL_PARTY_STATS).sort((a,b) => b[1].median - a[1].median).slice(0, 15).map(([name, s]) => {
+              const currentCount = byRecipient[name] ? byRecipient[name].pending + byRecipient[name].overdue : 0;
+              const type = ['PG&E','SCE','SDG&E','PCE','National Grid','Eversource'].includes(name) ? 'Utility' : 'AHJ';
+              const slow = s.median >= 25;
+              return `<tr class="border-b border-haven-border">
+                <td class="py-2 font-medium">${name}</td>
+                <td class="py-2 text-haven-muted text-xs">${type}</td>
+                <td class="py-2 ${slow ? 'text-haven-danger font-medium' : ''}">${s.median}d</td>
+                <td class="py-2 text-haven-muted">${s.avg}d</td>
+                <td class="py-2 text-haven-muted">n=${s.n}</td>
+                <td class="py-2">${currentCount > 0 ? `<span class="badge badge-neutral">${currentCount} open</span>` : '—'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  attachProjectHandlers();
+}
+
+// ============================================================
+// SCHEDULE — installer calendar (next 14 days)
+// ============================================================
+function renderSchedule() {
+  // Demo: synthesize crew schedule. Each installer has 2-3 crews; each crew has a project per day or is free.
+  const DAYS = 14;
+  const today = new Date();
+  const dayLabels = [];
+  for (let i = 0; i < DAYS; i++) {
+    const d = new Date(today); d.setDate(d.getDate() + i);
+    dayLabels.push({ date: d, label: `${d.toLocaleDateString('en-US', {weekday: 'short'})} ${d.getMonth()+1}/${d.getDate()}`, isWeekend: d.getDay() === 0 || d.getDay() === 6 });
+  }
+
+  const installersToShow = viewMode === 'installer' ? [CURRENT_INSTALLER] : INSTALLERS;
+
+  // For each installer, figure out their active projects in installation/scheduling stages and place them
+  const schedule = {};
+  installersToShow.forEach(inst => {
+    const theirProjects = PROJECTS.filter(p => getInstaller(p) === inst && ['scheduling','installation','inspection'].includes(p.stage));
+    schedule[inst] = { crews: {}, projects: theirProjects };
+    // 2 crews per installer
+    const crewCount = 2;
+    for (let c = 0; c < crewCount; c++) {
+      schedule[inst].crews[`Crew ${String.fromCharCode(65+c)}`] = new Array(DAYS).fill(null);
+    }
+    // Place projects: installation stage = today + some offset, scheduling stage = further out
+    theirProjects.forEach((p, idx) => {
+      const crew = Object.keys(schedule[inst].crews)[idx % crewCount];
+      const dayOffset = p.stage === 'installation' ? (idx % 2) : p.stage === 'scheduling' ? 3 + (idx % 8) : 7 + (idx % 5);
+      if (dayOffset < DAYS && !dayLabels[dayOffset].isWeekend) {
+        schedule[inst].crews[crew][dayOffset] = p;
+      }
+    });
+  });
+
+  main.innerHTML = `
+    <div class="p-6">
+      <div class="mb-5">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Install Schedule</h1>
+        <p class="text-sm text-haven-muted mt-1">Next ${DAYS} days · ${viewMode === 'installer' ? CURRENT_INSTALLER : 'all installers'}</p>
+      </div>
+
+      <div class="card p-0 overflow-x-auto">
+        <table class="w-full border-collapse">
+          <thead>
+            <tr class="border-b border-haven-border">
+              <th class="text-left p-3 text-xs uppercase text-haven-muted sticky left-0 bg-white min-w-[160px]">Installer / Crew</th>
+              ${dayLabels.map(d => `<th class="p-2 text-xs ${d.isWeekend ? 'bg-haven-bg text-haven-muted' : 'text-haven-muted'} min-w-[100px]">${d.label}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${installersToShow.map(inst => Object.entries(schedule[inst].crews).map(([crew, days], ci) => `
+              <tr class="border-b border-haven-border">
+                <td class="p-3 text-sm sticky left-0 bg-white">
+                  ${ci === 0 ? `<div class="font-medium text-haven-forest">${inst}</div>` : ''}
+                  <div class="text-xs text-haven-muted">${crew}</div>
+                </td>
+                ${days.map((proj, di) => `
+                  <td class="p-1 ${dayLabels[di].isWeekend ? 'bg-haven-bg' : ''}">
+                    ${proj ? `
+                      <div class="p-1.5 rounded text-xs cursor-pointer hover-lift" style="background: rgba(1, 51, 0, 0.08); border-left: 3px solid #013300;" data-project-id="${proj.id}">
+                        <div class="font-medium truncate">${proj.name.split(' ')[0]}</div>
+                        <div class="text-[10px] text-haven-muted truncate">${STAGE_LABELS[proj.stage]}</div>
+                      </div>` : ''}
+                  </td>`).join('')}
+              </tr>
+            `).join('')).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 text-xs text-haven-muted">Drag projects between crews and days to reschedule (not wired in demo).</div>
+    </div>
+  `;
+  attachProjectHandlers();
+}
+
+
 // ============================================================
 // INSTALLER JOBS
 // ============================================================
 function renderInstallerJobs() {
   const myActive = visibleProjects().filter(p => p.stage !== 'completed');
   const myCompleted = visibleProjects().filter(p => p.stage === 'completed');
-
-  // Prioritize: installation today, urgent, then scheduling, then everything else
   function sortKey(p) {
     if (p.stage === 'installation') return 0;
     if (p.priority === 'urgent') return 1;
@@ -760,15 +1251,12 @@ function renderInstallerJobs() {
     return 3;
   }
   const sorted = [...myActive].sort((a, b) => sortKey(a) - sortKey(b));
-
-  // One-line status per job
   function status(p) {
     if (p.stage === 'installation') return { text: 'On site', tone: 'danger' };
     if (p.stage === 'scheduling') return { text: 'Schedule install', tone: 'warn' };
     if (p.priority === 'urgent') return { text: 'Urgent', tone: 'danger' };
     return { text: STAGE_LABELS[p.stage], tone: 'neutral' };
   }
-
   const jobRow = (p) => {
     const s = status(p);
     const toneClass = s.tone === 'danger' ? 'text-haven-danger' : s.tone === 'warn' ? 'text-haven-warn' : 'text-haven-muted';
@@ -781,107 +1269,25 @@ function renderInstallerJobs() {
           </div>
           <div class="text-xs text-haven-muted mt-0.5 truncate">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''} · ${p.utility} · Coord: ${p.coord.split(' ')[0]}</div>
         </div>
-        <div class="text-right shrink-0">
-          <div class="text-sm font-medium ${toneClass}">${s.text}</div>
-        </div>
-      </div>
-    `;
+        <div class="text-sm font-medium ${toneClass} shrink-0">${s.text}</div>
+      </div>`;
   };
-
   main.innerHTML = `
     <div class="p-6 max-w-4xl">
       <div class="mb-5">
         <h1 class="font-serif text-2xl font-bold text-haven-forest">My Jobs</h1>
         <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER} · ${myActive.length} active${myCompleted.length ? `, ${myCompleted.length} completed` : ''}</p>
       </div>
-
       <div class="card p-0 overflow-hidden mb-5">
-        <div class="px-4 py-3 border-b border-haven-border">
-          <h2 class="font-serif font-bold text-haven-forest">Active jobs</h2>
-        </div>
+        <div class="px-4 py-3 border-b border-haven-border"><h2 class="font-serif font-bold text-haven-forest">Active jobs</h2></div>
         ${sorted.length === 0 ? '<div class="px-4 py-8 text-center text-sm text-haven-muted">No active jobs.</div>' : sorted.map(jobRow).join('')}
       </div>
-
       ${myCompleted.length > 0 ? `
         <div class="card p-0 overflow-hidden">
-          <div class="px-4 py-3 border-b border-haven-border">
-            <h2 class="font-serif font-bold text-haven-muted text-sm uppercase tracking-wide">Recently completed</h2>
-          </div>
-          ${myCompleted.map(p => `
-            <div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-center gap-4" data-project-id="${p.id}">
-              <div class="flex-1 min-w-0">
-                <div class="font-medium truncate">${p.name}</div>
-                <div class="text-xs text-haven-muted mt-0.5 truncate">${p.city}, ${p.state} · ${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</div>
-              </div>
-              <div class="text-xs text-haven-muted shrink-0">Completed</div>
-            </div>
-          `).join('')}
-        </div>
-      ` : ''}
-    </div>
-  `;
-  attachProjectHandlers();
-}
-
-// ============================================================
-// TASKS
-// ============================================================
-function renderTasks(installerOnly) {
-  const visible = visibleProjects();
-  const visibleIds = new Set(visible.map(p => p.id));
-  let tasks = TASKS.filter(t => visibleIds.has(t.projectId));
-  if (installerOnly) tasks = tasks.filter(t => t.ownerType === 'installer');
-  else tasks = tasks.filter(t => t.ownerType === 'internal');
-
-  const sorted = [...tasks].sort((a, b) => a.dueInDays - b.dueInDays);
-  const rows = sorted.map(t => {
-    const proj = PROJECTS.find(p => p.id === t.projectId);
-    const overdue = t.dueInDays < 0;
-    const dueText = t.dueInDays < 0 ? `${-t.dueInDays}d ago` : t.dueInDays === 0 ? 'today' : `in ${t.dueInDays}d`;
-    const priorityBadge = t.priority === 'urgent' ? '<span class="badge badge-danger">urgent</span>' : t.priority === 'high' ? '<span class="badge badge-warn">high</span>' : '<span class="badge badge-neutral">normal</span>';
-    const statusBadge = t.status === 'done' ? '<span class="badge badge-ok">done</span>' : '';
-    return `
-      <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${proj.id}">
-        <td class="px-4 py-2.5">
-          <div class="font-medium ${t.status === 'done' ? 'line-through text-haven-muted' : ''}">${t.title}</div>
-          <div class="text-xs text-haven-muted mt-0.5">${STAGE_LABELS[t.stage]}</div>
-        </td>
-        <td class="px-4 py-2.5"><span class="text-haven-forest">${proj.name}</span></td>
-        ${installerOnly ? '' : `<td class="px-4 py-2.5">${avatar(proj.coord, 20)} <span class="text-xs ml-1 align-middle">${proj.coord.split(' ')[0]}</span></td>`}
-        <td class="px-4 py-2.5 ${overdue && t.status !== 'done' ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${dueText}</td>
-        <td class="px-4 py-2.5">${statusBadge || priorityBadge}</td>
-      </tr>`;
-  }).join('');
-
-  const overdueCount = sorted.filter(t => t.dueInDays < 0 && t.status !== 'done').length;
-  const dueTodayCount = sorted.filter(t => t.dueInDays === 0 && t.status !== 'done').length;
-
-  main.innerHTML = `
-    <div class="p-6 max-w-6xl">
-      <div class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="font-serif text-2xl font-bold text-haven-forest">${installerOnly ? 'My Tasks' : 'Tasks'}</h1>
-          <p class="text-sm text-haven-muted mt-1">${installerOnly ? `Work assigned to ${CURRENT_INSTALLER}` : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${sorted.length} total</p>
-        </div>
-        <button class="btn btn-primary">+ New task</button>
-      </div>
-      <div class="flex gap-3 mb-5">
-        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Overdue</div><div class="font-serif font-bold text-lg text-haven-danger">${overdueCount}</div></div>
-        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Due Today</div><div class="font-serif font-bold text-lg">${dueTodayCount}</div></div>
-        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Upcoming</div><div class="font-serif font-bold text-lg">${Math.max(0, sorted.length - overdueCount - dueTodayCount)}</div></div>
-      </div>
-      <div class="card p-0 overflow-hidden">
-        <table class="w-full text-sm">
-          <thead class="bg-haven-bg border-b border-haven-border">
-            <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
-              <th class="px-4 py-2.5">Task</th><th class="px-4 py-2.5">Project</th>${installerOnly ? '' : '<th class="px-4 py-2.5">Coord</th>'}<th class="px-4 py-2.5">Due</th><th class="px-4 py-2.5">Status</th>
-            </tr>
-          </thead>
-          <tbody>${rows || `<tr><td colspan="${installerOnly ? 4 : 5}" class="px-4 py-8 text-center text-haven-muted">No tasks</td></tr>`}</tbody>
-        </table>
-      </div>
-    </div>
-  `;
+          <div class="px-4 py-3 border-b border-haven-border"><h2 class="font-serif font-bold text-haven-muted text-sm uppercase tracking-wide">Recently completed</h2></div>
+          ${myCompleted.map(p => `<div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-center gap-4" data-project-id="${p.id}"><div class="flex-1 min-w-0"><div class="font-medium truncate">${p.name}</div><div class="text-xs text-haven-muted mt-0.5 truncate">${p.city}, ${p.state} · ${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</div></div><div class="text-xs text-haven-muted">Completed</div></div>`).join('')}
+        </div>` : ''}
+    </div>`;
   attachProjectHandlers();
 }
 
@@ -891,40 +1297,29 @@ function renderTasks(installerOnly) {
 function renderInbox(installerOnly) {
   const visible = visibleProjects();
   let all = [];
-  visible.forEach(p => {
-    const thread = buildEmails(p);
-    thread.forEach(e => all.push({ ...e, project: p }));
-  });
-  if (installerOnly) {
-    all = all.filter(e => e.project.installer === CURRENT_INSTALLER);
-  }
+  visible.forEach(p => { buildEmails(p).forEach(e => all.push({ ...e, project: p })); });
+  if (installerOnly) all = all.filter(e => e.project.installer === CURRENT_INSTALLER);
   all.sort((a, b) => a.daysAgo - b.daysAgo);
-
   const emailRow = (e) => `
     <div class="border-b border-haven-border hover:bg-haven-bg cursor-pointer px-4 py-3" data-project-id="${e.project.id}">
       <div class="flex items-baseline justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <span class="badge ${e.direction === 'outbound' ? 'badge-ok' : 'badge-neutral'}">${e.direction === 'outbound' ? '↑' : '↓'}</span>
           <span class="font-medium truncate">${e.project.name}</span>
-          <span class="text-xs text-haven-muted shrink-0">${e.project.projectNumber}</span>
         </div>
         <span class="text-xs text-haven-muted shrink-0">${e.daysAgo === 0 ? 'today' : `${e.daysAgo}d ago`}</span>
       </div>
       <div class="text-sm mt-1 truncate text-haven-ink">${e.subject}</div>
       <div class="text-xs text-haven-muted mt-1 truncate">${e.body.replace(/\n/g, ' ').substring(0, 140)}…</div>
     </div>`;
-
   main.innerHTML = `
     <div class="p-6 max-w-5xl">
       <div class="mb-6">
         <h1 class="font-serif text-2xl font-bold text-haven-forest">${installerOnly ? 'Messages' : 'Inbox'}</h1>
-        <p class="text-sm text-haven-muted mt-1">${installerOnly ? `${CURRENT_INSTALLER}` : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${all.length} messages</p>
+        <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${all.length} messages</p>
       </div>
-      <div class="card p-0 overflow-hidden">
-        ${all.length ? all.map(emailRow).join('') : '<div class="p-8 text-center text-haven-muted">No messages</div>'}
-      </div>
-    </div>
-  `;
+      <div class="card p-0 overflow-hidden">${all.length ? all.map(emailRow).join('') : '<div class="p-8 text-center text-haven-muted">No messages</div>'}</div>
+    </div>`;
   attachProjectHandlers();
 }
 
@@ -939,37 +1334,21 @@ function renderPhotos(installerOnly) {
   const apc = photos.filter(p => p.flag === 'approved').length;
   const rjc = photos.filter(p => p.flag === 'rejected').length;
   const filtered = photoFilter === 'all' ? photos : photos.filter(p => p.flag === photoFilter);
-
-  const filterBtn = (key, label, count) => `
-    <button class="btn btn-secondary ${photoFilter === key ? 'bg-haven-forest text-white border-haven-forest' : ''}" data-filter="${key}">
-      ${label} <span class="text-xs ml-1 opacity-70">${count}</span>
-    </button>`;
-
+  const filterBtn = (key, label, count) => `<button class="btn btn-secondary ${photoFilter === key ? 'bg-haven-forest text-white border-haven-forest' : ''}" data-filter="${key}">${label} <span class="text-xs ml-1 opacity-70">${count}</span></button>`;
   main.innerHTML = `
     <div class="p-6 max-w-7xl">
       <div class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="font-serif text-2xl font-bold text-haven-forest">Photos</h1>
-          <p class="text-sm text-haven-muted mt-1">${photos.length} photos · ${new Set(photos.map(p=>p.projectId)).size} projects</p>
-        </div>
+        <div><h1 class="font-serif text-2xl font-bold text-haven-forest">Photos</h1>
+        <p class="text-sm text-haven-muted mt-1">${photos.length} photos · ${new Set(photos.map(p=>p.projectId)).size} projects</p></div>
         ${installerOnly ? '<button class="btn btn-primary">+ Upload photos</button>' : ''}
       </div>
-      <div class="flex gap-2 mb-5 text-sm">
-        ${filterBtn('all', 'All', photos.length)}
-        ${filterBtn('needs_review', 'Needs Review', nrc)}
-        ${filterBtn('approved', 'Approved', apc)}
-        ${filterBtn('rejected', 'Rejected', rjc)}
-      </div>
+      <div class="flex gap-2 mb-5 text-sm">${filterBtn('all', 'All', photos.length)} ${filterBtn('needs_review', 'Needs Review', nrc)} ${filterBtn('approved', 'Approved', apc)} ${filterBtn('rejected', 'Rejected', rjc)}</div>
       <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
         ${filtered.map(p => `
           <div class="card p-0 overflow-hidden hover-lift cursor-pointer" data-photo-project="${p.projectId}">
             <div class="aspect-square ${p.gradient} relative">
               <div class="absolute top-2 left-2 text-white/80 text-[10px] uppercase tracking-wider">${p.category.replace('_', ' ')}</div>
-              <div class="absolute bottom-2 right-2">
-                ${p.flag === 'approved' ? '<span class="badge" style="background:rgba(47,122,62,0.9);color:white">✓</span>' : ''}
-                ${p.flag === 'rejected' ? '<span class="badge" style="background:rgba(196,69,69,0.9);color:white">✗</span>' : ''}
-                ${p.flag === 'needs_review' ? '<span class="badge" style="background:rgba(224,168,58,0.9);color:white">review</span>' : ''}
-              </div>
+              <div class="absolute bottom-2 right-2">${p.flag === 'approved' ? '<span class="badge" style="background:rgba(47,122,62,0.9);color:white">✓</span>' : p.flag === 'rejected' ? '<span class="badge" style="background:rgba(196,69,69,0.9);color:white">✗</span>' : '<span class="badge" style="background:rgba(224,168,58,0.9);color:white">review</span>'}</div>
             </div>
             <div class="p-2">
               <div class="text-xs font-medium truncate">${p.projectName}</div>
@@ -977,123 +1356,140 @@ function renderPhotos(installerOnly) {
             </div>
           </div>`).join('')}
       </div>
-    </div>
-  `;
-  document.querySelectorAll('[data-filter]').forEach(el => {
-    el.addEventListener('click', () => { photoFilter = el.dataset.filter; render(); });
-  });
-  document.querySelectorAll('[data-photo-project]').forEach(el => {
-    el.addEventListener('click', () => openProjectModal(el.dataset.photoProject));
-  });
+    </div>`;
+  document.querySelectorAll('[data-filter]').forEach(el => el.addEventListener('click', () => { photoFilter = el.dataset.filter; render(); }));
+  document.querySelectorAll('[data-photo-project]').forEach(el => el.addEventListener('click', () => openProjectModal(el.dataset.photoProject)));
 }
 
 // ============================================================
-// LEADERSHIP METRICS
+// METRICS — cycle time + bottlenecks + time allocation
 // ============================================================
-function renderLeadership() {
+function renderMetrics() {
   const active = PROJECTS.filter(p => p.stage !== 'completed');
   const completed = PROJECTS.filter(p => p.stage === 'completed');
   const overdue = active.filter(p => p.slaStatus === 'breached');
   const avgCycle = completed.length ? Math.round(completed.reduce((a, p) => a + (p.cycleDays || 0), 0) / completed.length) : 0;
   const atRisk = active.filter(p => p.riskLevel === 'high');
   const noAction = active.filter(p => !p.nextAction);
-  const idle = active.filter(p => p.lastTouchedDaysAgo >= IDLE_DANGER);
 
-  const byState = {}; active.forEach(p => { byState[p.state] = (byState[p.state] || 0) + 1; });
-  const maxState = Math.max(...Object.values(byState));
-  const byStage = {}; STAGE_ORDER.forEach(s => byStage[s] = active.filter(p => p.stage === s).length);
-  const maxStage = Math.max(...Object.values(byStage));
-  const byInstaller = {}; active.forEach(p => { const i = getInstaller(p) || 'Unassigned'; byInstaller[i] = (byInstaller[i] || 0) + 1; });
-  const byCoord = {}; active.forEach(p => { const c = getCoord(p); byCoord[c] = (byCoord[c] || 0) + 1; });
+  // Stage averages (demo data)
+  const stageAvgs = STAGE_ORDER.map(stage => {
+    const durations = COMPLETED_STAGE_DURATIONS[stage] || [];
+    const avg = durations.length ? Math.round(durations.reduce((a,b)=>a+b,0) / durations.length) : 0;
+    const target = STAGE_TARGETS_CA[stage];
+    return { stage, avg, target, variance: avg - target };
+  });
+  const totalCycle = stageAvgs.reduce((a, s) => a + s.avg, 0);
+  const handoffSum = COMPLETED_STAGE_DURATIONS.handoff_gaps.reduce((a, b) => a + b, 0);
 
-  const stageAvgs = [
-    { stage: 'site_survey', avg: 6, n: 4 }, { stage: 'design', avg: 8, n: 4 },
-    { stage: 'permitting', avg: 24, n: 4 }, { stage: 'scheduling', avg: 4, n: 4 },
-    { stage: 'installation', avg: 2, n: 4 }, { stage: 'inspection', avg: 9, n: 4 },
-    { stage: 'interconnection', avg: 27, n: 4 }, { stage: 'rebate', avg: 12, n: 3 },
-  ];
+  // Bottleneck: AHJs/utilities with median 2x the overall median
+  const stats = Object.entries(EXTERNAL_PARTY_STATS);
+  const overallMedian = [...stats].sort((a,b) => a[1].median - b[1].median)[Math.floor(stats.length / 2)][1].median;
+  const bottlenecks = stats.filter(([_, s]) => s.median >= overallMedian * 1.5).sort((a, b) => b[1].median - a[1].median);
+
+  // Coord health
+  const coordHealth = COORDINATORS.map(c => {
+    const their = active.filter(p => getCoord(p) === c);
+    return {
+      coord: c,
+      active: their.length,
+      atRisk: their.filter(p => p.riskLevel === 'high').length,
+      breached: their.filter(p => p.slaStatus === 'breached').length,
+      noAction: their.filter(p => !p.nextAction).length,
+    };
+  });
 
   const stat = (label, value, tone) => `
-    <div class="card">
-      <div class="text-xs text-haven-muted uppercase tracking-wide">${label}</div>
-      <div class="font-serif font-bold text-2xl mt-1 ${tone === 'danger' ? 'text-haven-danger' : tone === 'ok' ? 'text-haven-ok' : 'text-haven-forest'}">${value}</div>
-    </div>`;
+    <div class="card"><div class="text-xs text-haven-muted uppercase tracking-wide">${label}</div>
+    <div class="font-serif font-bold text-2xl mt-1 ${tone === 'danger' ? 'text-haven-danger' : tone === 'ok' ? 'text-haven-ok' : 'text-haven-forest'}">${value}</div></div>`;
 
   main.innerHTML = `
     <div class="p-6 max-w-6xl">
       <div class="mb-6">
-        <h1 class="font-serif text-2xl font-bold text-haven-forest">Leadership Metrics</h1>
-        <p class="text-sm text-haven-muted mt-1">Throughput, cycle time, and slippage risk</p>
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Metrics</h1>
+        <p class="text-sm text-haven-muted mt-1">Cycle time, bottlenecks, and slippage risk</p>
       </div>
+
       <div class="grid grid-cols-4 gap-4 mb-6">
         ${stat('Active', active.length)}
         ${stat('At Risk', atRisk.length, atRisk.length > 0 ? 'danger' : 'ok')}
         ${stat('Past SLA', overdue.length, overdue.length > 0 ? 'danger' : undefined)}
         ${stat('Avg Cycle', avgCycle + 'd')}
       </div>
-      <div class="grid grid-cols-3 gap-4 mb-6">
-        ${stat('No next action', noAction.length, noAction.length > 0 ? 'danger' : 'ok')}
-        ${stat(`Idle > ${IDLE_DANGER}d`, idle.length, idle.length > 0 ? 'danger' : 'ok')}
-        ${stat('Completed (demo)', completed.length, 'ok')}
-      </div>
+
       <div class="card mb-6">
-        <h2 class="font-serif font-bold text-haven-forest mb-4">Coordinator load &amp; health</h2>
+        <h2 class="font-serif font-bold text-haven-forest mb-1">Where cycle time goes</h2>
+        <p class="text-xs text-haven-muted mb-4">Median time per stage across completed projects · handoff gaps shown separately</p>
+        <div class="space-y-2">
+          ${stageAvgs.map((s, i) => {
+            const pct = (s.avg / (totalCycle + handoffSum)) * 100;
+            const handoffPct = i < stageAvgs.length - 1 ? (COMPLETED_STAGE_DURATIONS.handoff_gaps[i] / (totalCycle + handoffSum)) * 100 : 0;
+            const overBy = s.variance;
+            const tone = overBy > 3 ? 'danger' : overBy > 0 ? 'warn' : '';
+            return `
+              <div>
+                <div class="flex items-center gap-3 mb-1">
+                  <div class="w-32 text-sm">${STAGE_LABELS[s.stage]}</div>
+                  <div class="flex-1 track-bar">
+                    <div class="track-bar-fill ${tone}" style="width: ${pct * 3}%"></div>
+                  </div>
+                  <div class="text-sm font-medium w-16 text-right">${s.avg}d</div>
+                  <div class="text-xs w-20 text-right ${overBy > 0 ? 'text-haven-danger' : 'text-haven-ok'}">${overBy > 0 ? '+' : ''}${overBy}d vs SLA</div>
+                </div>
+                ${handoffPct > 0 ? `<div class="flex items-center gap-3 mb-3 text-haven-muted">
+                  <div class="w-32 text-xs italic">&nbsp;↳ handoff</div>
+                  <div class="flex-1 track-bar"><div class="track-bar-fill" style="width: ${handoffPct * 3}%; background: #C5E84A;"></div></div>
+                  <div class="text-xs w-16 text-right">${COMPLETED_STAGE_DURATIONS.handoff_gaps[i]}d</div>
+                  <div class="w-20"></div>
+                </div>` : ''}
+              </div>`;
+          }).join('')}
+        </div>
+        <div class="mt-4 pt-4 border-t border-haven-border flex items-center justify-between">
+          <div class="text-sm"><span class="text-haven-muted">Total stage time:</span> <span class="font-medium">${totalCycle}d</span> · <span class="text-haven-muted">Handoff time:</span> <span class="font-medium text-haven-warn">${handoffSum}d (${Math.round(handoffSum/(totalCycle+handoffSum)*100)}%)</span></div>
+          <div class="text-xs text-haven-muted">Opportunity: reducing handoff gaps saves ~${handoffSum}d per project</div>
+        </div>
+      </div>
+
+      <div class="card mb-6">
+        <h2 class="font-serif font-bold text-haven-forest mb-1">Bottleneck detection</h2>
+        <p class="text-xs text-haven-muted mb-4">AHJs and utilities running >1.5x the overall median (${overallMedian}d)</p>
         <table class="w-full text-sm">
-          <thead><tr class="text-left text-xs text-haven-muted uppercase"><th class="pb-2">Coordinator</th><th class="pb-2">Active</th><th class="pb-2">At risk</th><th class="pb-2">Past SLA</th><th class="pb-2">No next action</th><th class="pb-2">Idle</th></tr></thead>
+          <thead><tr class="text-left text-xs text-haven-muted uppercase border-b border-haven-border">
+            <th class="pb-2">Recipient</th><th class="pb-2">Type</th><th class="pb-2">Median</th><th class="pb-2">vs Overall</th><th class="pb-2">Suggested action</th>
+          </tr></thead>
           <tbody>
-            ${COORDINATORS.map(c => {
-              const their = active.filter(p => getCoord(p) === c);
-              const theirRisk = their.filter(p => p.riskLevel === 'high').length;
-              const theirBreach = their.filter(p => p.slaStatus === 'breached').length;
-              const theirNoAction = their.filter(p => !p.nextAction).length;
-              const theirIdle = their.filter(p => p.lastTouchedDaysAgo >= IDLE_DANGER).length;
-              return `<tr class="border-t border-haven-border cursor-pointer hover:bg-haven-bg" onclick="switchToCoord('${c}')">
-                <td class="py-2">${avatar(c, 20)} <span class="ml-2 align-middle">${c}</span></td>
-                <td class="py-2 font-medium">${their.length}</td>
-                <td class="py-2 ${theirRisk > 0 ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${theirRisk}</td>
-                <td class="py-2 ${theirBreach > 0 ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${theirBreach}</td>
-                <td class="py-2 ${theirNoAction > 0 ? 'text-haven-warn font-medium' : 'text-haven-muted'}">${theirNoAction}</td>
-                <td class="py-2 ${theirIdle > 0 ? 'text-haven-warn font-medium' : 'text-haven-muted'}">${theirIdle}</td>
+            ${bottlenecks.length === 0 ? '<tr><td colspan="5" class="py-4 text-center text-haven-muted">No bottlenecks detected</td></tr>' : bottlenecks.map(([name, s]) => {
+              const multiple = (s.median / overallMedian).toFixed(1);
+              const type = ['PG&E','SCE','SDG&E','PCE','National Grid','Eversource'].includes(name) ? 'Utility' : 'AHJ';
+              const action = s.median >= overallMedian * 2 ? 'Escalate — consider direct relationship' : 'Pre-submit earlier to compensate';
+              return `<tr class="border-b border-haven-border">
+                <td class="py-2 font-medium">${name}</td>
+                <td class="py-2 text-haven-muted text-xs">${type}</td>
+                <td class="py-2 text-haven-danger font-medium">${s.median}d</td>
+                <td class="py-2 text-haven-danger">${multiple}x</td>
+                <td class="py-2 text-xs text-haven-muted">${action}</td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
       </div>
-      <div class="grid grid-cols-2 gap-6 mb-6">
-        <div class="card">
-          <h2 class="font-serif font-bold text-haven-forest mb-4">Pipeline distribution</h2>
-          ${STAGE_ORDER.map(s => `
-            <div class="flex items-center gap-3 mb-2">
-              <div class="w-32 text-xs">${STAGE_LABELS[s]}</div>
-              <div class="flex-1 bg-haven-border rounded-full h-5 overflow-hidden">
-                <div class="bg-haven-forest h-full" style="width: ${(byStage[s] / maxStage) * 100}%"></div>
-              </div>
-              <div class="w-8 text-sm text-right text-haven-muted">${byStage[s]}</div>
-            </div>`).join('')}
-        </div>
-        <div class="card">
-          <h2 class="font-serif font-bold text-haven-forest mb-4">Active by state</h2>
-          ${Object.entries(byState).sort((a,b)=>b[1]-a[1]).map(([state, count]) => `
-            <div class="flex items-center gap-3 mb-2">
-              <div class="w-10 text-sm font-medium">${state}</div>
-              <div class="flex-1 bg-haven-border rounded-full h-5 overflow-hidden">
-                <div class="bg-haven-lime h-full" style="width: ${(count / maxState) * 100}%"></div>
-              </div>
-              <div class="w-10 text-sm text-right text-haven-muted">${count}</div>
-            </div>`).join('')}
-        </div>
-      </div>
+
       <div class="card mb-6">
-        <h2 class="font-serif font-bold text-haven-forest mb-4">Avg time per stage (completed — demo)</h2>
+        <h2 class="font-serif font-bold text-haven-forest mb-4">Coordinator health</h2>
         <table class="w-full text-sm">
-          <thead><tr class="text-left text-xs text-haven-muted uppercase"><th class="pb-2">Stage</th><th class="pb-2">Avg</th><th class="pb-2">SLA</th><th class="pb-2">vs Target</th></tr></thead>
+          <thead><tr class="text-left text-xs text-haven-muted uppercase border-b border-haven-border">
+            <th class="pb-2">Coordinator</th><th class="pb-2">Active</th><th class="pb-2">At risk</th><th class="pb-2">Past SLA</th><th class="pb-2">No next action</th>
+          </tr></thead>
           <tbody>
-            ${stageAvgs.map(s => {
-              const target = STAGE_TARGETS_CA[s.stage];
-              const diff = s.avg - target;
-              const diffLabel = diff > 0 ? `<span class="text-haven-danger">+${diff}d</span>` : diff < 0 ? `<span class="text-haven-ok">${diff}d</span>` : `<span class="text-haven-muted">on target</span>`;
-              return `<tr class="border-t border-haven-border"><td class="py-2">${STAGE_LABELS[s.stage]}</td><td class="py-2 font-medium">${s.avg}d</td><td class="py-2 text-haven-muted">${target}d</td><td class="py-2">${diffLabel}</td></tr>`;
-            }).join('')}
+            ${coordHealth.map(c => `
+              <tr class="border-b border-haven-border cursor-pointer hover:bg-haven-bg" onclick="switchToCoord('${c.coord}')">
+                <td class="py-2">${avatar(c.coord, 20)} <span class="ml-2 align-middle">${c.coord}</span></td>
+                <td class="py-2 font-medium">${c.active}</td>
+                <td class="py-2 ${c.atRisk > 0 ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${c.atRisk}</td>
+                <td class="py-2 ${c.breached > 0 ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${c.breached}</td>
+                <td class="py-2 ${c.noAction > 0 ? 'text-haven-warn font-medium' : 'text-haven-muted'}">${c.noAction}</td>
+              </tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -1101,44 +1497,41 @@ function renderLeadership() {
   `;
 }
 
+
 // ============================================================
 // PROJECT MODAL
 // ============================================================
+const TRACK_LABELS = { hoa: 'HOA / permit pre-approval', financing: 'Financing', utility_preapp: 'Utility pre-application' };
+const TRACK_STATUS_LABELS = { done: 'Done', in_progress: 'In progress', not_started: 'Not started', na: 'N/A' };
+
 function openProjectModal(projectId) {
   const p = PROJECTS.find(pr => pr.id === projectId);
   if (!p) return;
-
   const projectTasks = TASKS.filter(t => t.projectId === p.id && (viewMode === 'internal' ? t.ownerType === 'internal' : t.ownerType === 'installer'));
   const projectPhotos = PHOTOS.filter(ph => ph.projectId === p.id);
+  const projectSubmittals = SUBMITTALS.filter(s => s.projectId === p.id);
   const currentStageIdx = p.stage === 'completed' ? STAGE_ORDER.length : STAGE_ORDER.indexOf(p.stage);
   const inst = getInstaller(p);
   const coord = getCoord(p);
   const emails = buildEmails(p);
+  const ready = isReadyToAdvance(p);
 
   const slaBadge = p.stage === 'completed' ? '<div class="badge badge-ok mt-1">completed</div>'
     : p.slaStatus === 'breached' ? `<div class="badge badge-danger mt-1">${p.daysOverdue}d overdue</div>`
     : p.slaStatus === 'approaching' ? `<div class="badge badge-warn mt-1">${p.daysInStage}/${p.effectiveTarget}d</div>`
     : p.effectiveTarget ? `<div class="badge badge-ok mt-1">${p.daysInStage}/${p.effectiveTarget}d</div>` : '';
 
-  // Health block — the anti-slippage brain of the modal
   const healthBlock = viewMode === 'internal' && p.stage !== 'completed' ? `
-    <div class="card mb-5 ${p.riskLevel === 'high' ? 'border-l-4 border-l-haven-danger' : p.riskLevel === 'medium' ? 'border-l-4 border-l-haven-warn' : 'border-l-4 border-l-haven-ok'}">
+    <div class="card mb-5 ${ready ? 'border-l-4 border-l-haven-ok' : p.riskLevel === 'high' ? 'border-l-4 border-l-haven-danger' : p.riskLevel === 'medium' ? 'border-l-4 border-l-haven-warn' : 'border-l-4 border-l-haven-ok'}">
       <div class="flex items-start justify-between mb-3">
-        <div>
-          <h3 class="font-serif font-bold text-haven-forest">Project Health</h3>
-          <div class="text-xs text-haven-muted mt-0.5">Risk score: <span class="font-medium text-haven-ink">${p.risk}/100</span> · ${p.riskLevel}</div>
-        </div>
-        ${p.attentionReasons.length > 0 ? `<div class="flex flex-wrap gap-1 justify-end max-w-sm">${p.attentionReasons.map(r => `<span class="badge badge-attention">${r}</span>`).join('')}</div>` : '<span class="badge badge-ok">On track</span>'}
+        <h3 class="font-serif font-bold text-haven-forest">Project Health</h3>
+        ${ready ? '<span class="badge badge-ok">✓ Ready to advance</span>' : p.riskLevel === 'high' ? '<span class="badge badge-danger">At risk</span>' : p.riskLevel === 'medium' ? '<span class="badge badge-warn">Watch</span>' : '<span class="badge badge-ok">On track</span>'}
       </div>
-
       <div class="grid grid-cols-3 gap-4 text-sm">
         <div>
           <div class="text-xs text-haven-muted uppercase tracking-wide mb-1">Next action</div>
-          ${p.nextAction ? `
-            <div class="font-medium">${p.nextAction}</div>
-            <div class="text-xs text-haven-muted mt-0.5">
-              ${p.nextActionOwner} · ${p.nextActionDueInDays < 0 ? `<span class="text-haven-danger font-medium">${-p.nextActionDueInDays}d overdue</span>` : p.nextActionDueInDays === 0 ? '<span class="text-haven-warn font-medium">Due today</span>' : `due in ${p.nextActionDueInDays}d`}
-            </div>` : `<div class="text-haven-danger font-medium">— not set —</div><button class="btn btn-secondary text-xs mt-1">Set next action</button>`}
+          ${p.nextAction ? `<div class="font-medium">${p.nextAction}</div>
+            <div class="text-xs text-haven-muted mt-0.5">${p.nextActionOwner} · ${p.nextActionDueInDays < 0 ? `<span class="text-haven-danger font-medium">${-p.nextActionDueInDays}d overdue</span>` : p.nextActionDueInDays === 0 ? '<span class="text-haven-warn font-medium">Due today</span>' : `due in ${p.nextActionDueInDays}d`}</div>` : `<div class="text-haven-danger font-medium">— not set —</div>`}
         </div>
         <div>
           <div class="text-xs text-haven-muted uppercase tracking-wide mb-1">Waiting on</div>
@@ -1148,7 +1541,7 @@ function openProjectModal(projectId) {
         <div>
           <div class="text-xs text-haven-muted uppercase tracking-wide mb-1">Last activity</div>
           <div class="font-medium ${p.lastTouchedDaysAgo >= IDLE_DANGER ? 'text-haven-warn' : ''}">${p.lastTouchedDaysAgo === 0 ? 'Today' : `${p.lastTouchedDaysAgo}d ago`}</div>
-          <div class="text-xs text-haven-muted mt-0.5">${p.lastTouchedDaysAgo >= IDLE_DANGER ? 'Idle — may be slipping' : p.lastTouchedDaysAgo >= IDLE_WARNING ? 'Quiet' : 'Recent activity'}</div>
+          <div class="text-xs text-haven-muted mt-0.5">${p.lastTouchedDaysAgo >= IDLE_DANGER ? 'Idle' : p.lastTouchedDaysAgo >= IDLE_WARNING ? 'Quiet' : 'Recent'}</div>
         </div>
       </div>
     </div>
@@ -1168,7 +1561,7 @@ function openProjectModal(projectId) {
           </div>
         </div>
         <div>
-          <label class="text-xs text-haven-muted uppercase tracking-wide block mb-1">Installer (subcontractor)</label>
+          <label class="text-xs text-haven-muted uppercase tracking-wide block mb-1">Installer</label>
           <div class="flex items-center gap-2">
             <select id="installerSelect" class="flex-1 px-3 py-2 border border-haven-border rounded-md text-sm bg-white">
               <option value="">— Unassigned —</option>
@@ -1184,15 +1577,56 @@ function openProjectModal(projectId) {
   const installerAckBlock = viewMode === 'installer' ? `
     <div class="card mb-5" style="background: rgba(197, 232, 74, 0.1); border-color: rgba(1, 51, 0, 0.2);">
       <div class="flex items-center justify-between">
-        <div>
-          <h3 class="font-serif font-bold text-haven-forest mb-1">Assigned to ${CURRENT_INSTALLER}</h3>
-          <div class="text-sm text-haven-muted">Coordinator: ${coord} · Handed off ${p.kickoffAgo}d ago</div>
-        </div>
-        <div class="flex gap-2">
-          <button class="btn btn-secondary text-sm">Request change</button>
-          <button class="btn btn-primary text-sm">Message coordinator</button>
-        </div>
+        <div><h3 class="font-serif font-bold text-haven-forest mb-1">Assigned to ${CURRENT_INSTALLER}</h3>
+        <div class="text-sm text-haven-muted">Coordinator: ${coord} · Handed off ${p.kickoffAgo}d ago</div></div>
+        <div class="flex gap-2"><button class="btn btn-secondary text-sm">Request change</button><button class="btn btn-primary text-sm">Message coordinator</button></div>
       </div>
+    </div>
+  ` : '';
+
+  // Parallel tracks block (internal only)
+  const tracks = p.tracks || {};
+  const parallelTracksBlock = viewMode === 'internal' && p.stage !== 'completed' ? `
+    <div class="card mb-5">
+      <h3 class="font-serif font-bold text-haven-forest mb-3">Parallel tracks</h3>
+      <p class="text-xs text-haven-muted mb-3">Work that can run alongside the main pipeline</p>
+      <div class="space-y-2.5">
+        ${Object.entries(TRACK_LABELS).map(([key, label]) => {
+          const status = tracks[key] || 'not_started';
+          const color = status === 'done' ? 'ok' : status === 'in_progress' ? 'warn' : status === 'na' ? 'neutral' : 'danger';
+          return `
+            <div class="flex items-center gap-3">
+              <div class="text-sm w-60">${label}</div>
+              <div class="flex-1"></div>
+              <span class="badge badge-${color}">${TRACK_STATUS_LABELS[status]}</span>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  // Submittals for this project
+  const submittalsBlock = viewMode === 'internal' && projectSubmittals.length > 0 ? `
+    <div class="card mb-5">
+      <h3 class="font-serif font-bold text-haven-forest mb-3">Submittals</h3>
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-haven-muted uppercase border-b border-haven-border">
+          <th class="pb-2">Type</th><th class="pb-2">Recipient</th><th class="pb-2">Sent</th><th class="pb-2">Expected</th><th class="pb-2">Status</th>
+        </tr></thead>
+        <tbody>
+          ${projectSubmittals.map(s => {
+            const stats = EXTERNAL_PARTY_STATS[s.recipient];
+            const statusBadge = s.status === 'overdue' ? `<span class="badge badge-danger">${s.sentDaysAgo - s.expectedResponseInDays}d overdue</span>` : s.status === 'responded' ? `<span class="badge badge-ok">responded</span>` : `<span class="badge badge-neutral">pending</span>`;
+            return `<tr class="border-b border-haven-border">
+              <td class="py-2">${SUBMITTAL_TYPES[s.type]}</td>
+              <td class="py-2">${s.recipient}</td>
+              <td class="py-2 text-xs text-haven-muted">${s.sentDaysAgo}d ago</td>
+              <td class="py-2 text-xs text-haven-muted">${stats ? `~${stats.median}d` : `${s.expectedResponseInDays}d`}</td>
+              <td class="py-2">${statusBadge}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
     </div>
   ` : '';
 
@@ -1200,30 +1634,23 @@ function openProjectModal(projectId) {
     <div class="sticky top-0 bg-haven-bg px-6 py-4 border-b border-haven-border flex items-center justify-between z-10">
       <div class="flex items-center gap-3">
         ${viewMode === 'internal' ? `<span class="risk-dot ${p.riskLevel || 'low'}"></span>` : ''}
-        <div>
-          <div class="text-xs text-haven-muted">${p.projectNumber}</div>
-          <h2 class="font-serif text-xl font-bold text-haven-forest">${p.name}</h2>
-        </div>
+        <div><div class="text-xs text-haven-muted">${p.projectNumber}</div>
+        <h2 class="font-serif text-xl font-bold text-haven-forest">${p.name}</h2></div>
       </div>
       <button onclick="closeModal()" class="text-haven-muted hover:text-haven-ink text-2xl leading-none">×</button>
     </div>
     <div class="p-6">
       <div class="flex items-start justify-between mb-5">
         <div class="text-sm text-haven-muted">${p.city}, ${p.state} ${p.zip}</div>
-        <div class="text-right">
-          <div class="text-xs text-haven-muted uppercase tracking-wide">Current Stage</div>
-          <div class="font-serif font-bold text-lg text-haven-forest">${p.stage === 'completed' ? 'Completed' : STAGE_LABELS[p.stage]}</div>
-          ${slaBadge}
-        </div>
+        <div class="text-right"><div class="text-xs text-haven-muted uppercase tracking-wide">Current Stage</div>
+        <div class="font-serif font-bold text-lg text-haven-forest">${p.stage === 'completed' ? 'Completed' : STAGE_LABELS[p.stage]}</div>${slaBadge}</div>
       </div>
-      ${healthBlock}
-      ${coordAssignmentBlock}
-      ${installerAckBlock}
+      ${healthBlock}${coordAssignmentBlock}${installerAckBlock}
 
       <div class="card mb-5">
         <div class="flex items-center justify-between mb-4">
           <h3 class="font-serif font-bold text-haven-forest">Pipeline</h3>
-          ${p.stage !== 'completed' && currentStageIdx < STAGE_ORDER.length - 1 && viewMode === 'internal' ? `<button class="btn btn-primary text-sm" onclick="alert('Advancing requires setting the next action for ${STAGE_LABELS[STAGE_ORDER[currentStageIdx + 1]]}')">Advance to ${STAGE_LABELS[STAGE_ORDER[currentStageIdx + 1]]} →</button>` : ''}
+          ${p.stage !== 'completed' && currentStageIdx < STAGE_ORDER.length - 1 && viewMode === 'internal' ? `<button class="btn ${ready ? 'btn-accent' : 'btn-primary'} text-sm" onclick="openAdvanceModal('${p.id}')">${ready ? '✓' : ''} Advance to ${STAGE_LABELS[STAGE_ORDER[currentStageIdx + 1]]} →</button>` : ''}
         </div>
         <div class="flex items-center overflow-x-auto pb-2">
           ${STAGE_ORDER.map((stage, i) => {
@@ -1232,8 +1659,7 @@ function openProjectModal(projectId) {
             const dotClass = isCurrent ? 'bg-haven-lime border-haven-forest' : isPast ? 'bg-haven-forest border-haven-forest' : 'bg-white border-haven-border';
             const textClass = isCurrent ? 'font-semibold text-haven-forest' : 'text-haven-muted';
             const lineClass = isPast ? 'bg-haven-forest' : 'bg-haven-border';
-            return `
-              <div class="flex items-center shrink-0">
+            return `<div class="flex items-center shrink-0">
                 <div class="flex flex-col items-center min-w-[90px]">
                   <div class="w-6 h-6 rounded-full border-2 ${dotClass}"></div>
                   <div class="text-[11px] mt-1.5 text-center ${textClass}">${STAGE_LABELS[stage]}</div>
@@ -1243,6 +1669,8 @@ function openProjectModal(projectId) {
           }).join('')}
         </div>
       </div>
+
+      ${parallelTracksBlock}
 
       <div class="grid grid-cols-3 gap-5 mb-5">
         <div class="card">
@@ -1257,7 +1685,6 @@ function openProjectModal(projectId) {
             <div class="flex justify-between gap-3"><dt class="text-haven-muted">Installer</dt><dd class="text-right ${!inst ? 'italic text-haven-muted' : ''}">${inst || 'Unassigned'}</dd></div>
             <div class="flex justify-between gap-3"><dt class="text-haven-muted">Surveyor</dt><dd class="text-right">${p.surveyor || '—'}</dd></div>
             <div class="flex justify-between gap-3"><dt class="text-haven-muted">Kickoff</dt><dd>${p.kickoffAgo}d ago</dd></div>
-            <div class="flex justify-between gap-3"><dt class="text-haven-muted">HubSpot</dt><dd>Deal ${123000 + parseInt(p.id.substring(1))}</dd></div>
           </dl>
         </div>
         <div class="card">
@@ -1267,14 +1694,16 @@ function openProjectModal(projectId) {
           </div>
           ${projectTasks.length === 0 ? '<div class="text-sm text-haven-muted">No tasks.</div>' : `
             <ul class="space-y-2">
-              ${projectTasks.map(t => `
-                <li class="text-sm border border-haven-border rounded p-2">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="font-medium ${t.status === 'done' ? 'line-through text-haven-muted' : ''}">${t.title}</div>
-                    ${t.priority === 'urgent' ? '<span class="badge badge-danger">urgent</span>' : t.priority === 'high' ? '<span class="badge badge-warn">high</span>' : ''}
+              ${projectTasks.map(t => {
+                const done = completedTasks.has(t.id) || t.status === 'done';
+                return `<li class="text-sm border border-haven-border rounded p-2 flex items-start gap-2">
+                  <div class="checkbox ${done ? 'checked' : ''}" onclick="event.stopPropagation(); toggleTask('${t.id}'); setTimeout(() => openProjectModal('${p.id}'), 50)">${done ? '✓' : ''}</div>
+                  <div class="flex-1">
+                    <div class="font-medium ${done ? 'line-through text-haven-muted' : ''}">${t.title}</div>
+                    <div class="text-xs text-haven-muted mt-0.5">${done ? 'completed' : t.dueInDays < 0 ? `${-t.dueInDays}d overdue` : t.dueInDays === 0 ? 'due today' : `due in ${t.dueInDays}d`}${t.autoGenerated ? ' · auto' : ''}</div>
                   </div>
-                  <div class="text-xs text-haven-muted mt-1">${t.status === 'done' ? '✓ completed' : t.dueInDays < 0 ? `${-t.dueInDays}d overdue` : t.dueInDays === 0 ? 'due today' : `due in ${t.dueInDays}d`}</div>
-                </li>`).join('')}
+                </li>`;
+              }).join('')}
             </ul>`}
           <button class="btn btn-secondary text-xs mt-3 w-full justify-center">+ Add task</button>
         </div>
@@ -1284,14 +1713,13 @@ function openProjectModal(projectId) {
             <span class="text-xs text-haven-muted">${projectPhotos.length}</span>
           </div>
           <div class="grid grid-cols-3 gap-1">
-            ${projectPhotos.slice(0, 9).map(ph => `
-              <div class="aspect-square ${ph.gradient} rounded relative">
-                <div class="absolute bottom-0 left-0 right-0 text-[9px] text-white/90 bg-black/30 px-1 truncate">${ph.category.replace('_', ' ')}</div>
-              </div>`).join('')}
+            ${projectPhotos.slice(0, 9).map(ph => `<div class="aspect-square ${ph.gradient} rounded relative"><div class="absolute bottom-0 left-0 right-0 text-[9px] text-white/90 bg-black/30 px-1 truncate">${ph.category.replace('_', ' ')}</div></div>`).join('')}
           </div>
           <button class="btn btn-secondary text-xs mt-3 w-full justify-center">${viewMode === 'installer' ? 'Upload' : 'View all'}</button>
         </div>
       </div>
+
+      ${submittalsBlock}
 
       <div class="card mb-5">
         <div class="flex items-center justify-between mb-3">
@@ -1302,8 +1730,7 @@ function openProjectModal(projectId) {
           </div>
         </div>
         <div class="space-y-2.5">
-          ${emails.map(e => `
-            <div class="email-bubble ${e.direction === 'outbound' ? 'outbound' : ''}">
+          ${emails.map(e => `<div class="email-bubble ${e.direction === 'outbound' ? 'outbound' : ''}">
               <div class="email-header">
                 <div class="min-w-0 flex-1">
                   <div class="text-xs text-haven-muted">${e.direction === 'outbound' ? 'To: ' : 'From: '}<span class="text-haven-ink">${e.direction === 'outbound' ? e.to : e.from}</span></div>
@@ -1320,36 +1747,103 @@ function openProjectModal(projectId) {
   document.getElementById('projectModal').classList.remove('hidden');
 }
 
+// ============================================================
+// ADVANCE STAGE MODAL — enforces checklist
+// ============================================================
+function openAdvanceModal(projectId) {
+  const p = PROJECTS.find(pr => pr.id === projectId);
+  if (!p) return;
+  const currentStageIdx = STAGE_ORDER.indexOf(p.stage);
+  const nextStage = STAGE_ORDER[currentStageIdx + 1];
+  const stageTasks = TASKS.filter(t => t.projectId === p.id && t.stage === p.stage && t.autoGenerated);
+  const openTasks = stageTasks.filter(t => !completedTasks.has(t.id) && t.status !== 'done');
+  const hasNextAction = !!p.nextAction;
+
+  const canAdvance = openTasks.length === 0;
+
+  document.getElementById('advanceModalContent').innerHTML = `
+    <div class="p-6">
+      <h2 class="font-serif text-xl font-bold text-haven-forest mb-1">Advance to ${STAGE_LABELS[nextStage]}?</h2>
+      <p class="text-sm text-haven-muted mb-5">${p.name} · ${STAGE_LABELS[p.stage]} → ${STAGE_LABELS[nextStage]}</p>
+
+      <div class="mb-4">
+        <div class="text-xs uppercase tracking-wider text-haven-muted mb-2">Stage checklist</div>
+        ${stageTasks.length === 0 ? '<div class="text-sm text-haven-muted">No stage checklist for this stage.</div>' : `
+          <ul class="space-y-2">
+            ${stageTasks.map(t => {
+              const done = completedTasks.has(t.id) || t.status === 'done';
+              return `<li class="flex items-center gap-3 text-sm">
+                <div class="checkbox ${done ? 'checked' : ''}" onclick="toggleTask('${t.id}'); openAdvanceModal('${p.id}')">${done ? '✓' : ''}</div>
+                <span class="${done ? 'line-through text-haven-muted' : ''}">${t.title}</span>
+              </li>`;
+            }).join('')}
+          </ul>`}
+      </div>
+
+      ${nextStage ? `
+        <div class="mb-4">
+          <div class="text-xs uppercase tracking-wider text-haven-muted mb-2">Next stage prep</div>
+          <div class="text-sm text-haven-muted mb-2">When you advance, these tasks will auto-generate for ${STAGE_LABELS[nextStage]}:</div>
+          <ul class="space-y-1 text-sm text-haven-muted bg-haven-bg rounded p-3">
+            ${(STAGE_TEMPLATES[nextStage] || []).map(t => `<li>· ${t.title} <span class="text-xs">(day ${t.offset})</span></li>`).join('')}
+          </ul>
+        </div>` : ''}
+
+      <div class="flex items-center justify-between mt-6 pt-4 border-t border-haven-border">
+        ${canAdvance ? '<span class="badge badge-ok">✓ Ready to advance</span>' : `<span class="badge badge-warn">${openTasks.length} open task${openTasks.length === 1 ? '' : 's'}</span>`}
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" onclick="closeAdvanceModal()">Cancel</button>
+          <button class="btn ${canAdvance ? 'btn-primary' : 'btn-secondary'}" ${canAdvance ? '' : 'disabled style="opacity:0.5;cursor:not-allowed"'} onclick="${canAdvance ? `confirmAdvance('${p.id}')` : ''}">${canAdvance ? 'Advance stage' : 'Complete tasks first'}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('advanceModal').classList.remove('hidden');
+}
+
+function confirmAdvance(projectId) {
+  alert('Stage advanced (demo — not persisted). New stage tasks auto-generated.');
+  closeAdvanceModal();
+  closeModal();
+}
+
+window.openAdvanceModal = openAdvanceModal;
+window.confirmAdvance = confirmAdvance;
+window.closeAdvanceModal = () => document.getElementById('advanceModal').classList.add('hidden');
+
+// ============================================================
+// SHARED
+// ============================================================
 function saveAssignment(projectId) {
   const val = document.getElementById('installerSelect').value;
   assignedInstallers[projectId] = val || null;
-  openProjectModal(projectId);
-  render();
+  openProjectModal(projectId); render();
 }
 window.saveAssignment = saveAssignment;
 
 function saveCoordAssignment(projectId) {
   const val = document.getElementById('coordAssignSelect').value;
   assignedCoords[projectId] = val;
-  openProjectModal(projectId);
-  renderCoordSelector();
-  renderNav();
-  render();
+  openProjectModal(projectId); renderCoordSelector(); renderNav(); render();
 }
 window.saveCoordAssignment = saveCoordAssignment;
 
-function closeModal() {
-  document.getElementById('projectModal').classList.add('hidden');
-}
+function closeModal() { document.getElementById('projectModal').classList.add('hidden'); }
 window.closeModal = closeModal;
 
 function attachProjectHandlers() {
   document.querySelectorAll('[data-project-id]').forEach(el => {
-    el.addEventListener('click', () => openProjectModal(el.dataset.projectId));
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.checkbox')) return;
+      if (e.target.tagName === 'BUTTON') return;
+      openProjectModal(el.dataset.projectId);
+    });
   });
 }
 
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { closeModal(); closeAdvanceModal(); }
+});
 
 renderCoordSelector();
 renderNav();
