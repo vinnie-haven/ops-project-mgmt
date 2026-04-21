@@ -584,6 +584,7 @@ const NAV_INTERNAL = [
   { view: 'tasks', label: 'Tasks', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>' },
   { group: 'Tracking' },
   { view: 'submittals', label: 'Submittals', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>' },
+  { view: 'post_install', label: 'Post-Install', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>' },
   { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
   { view: 'inbox', label: 'Inbox', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>' },
   { view: 'photos', label: 'Photos', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
@@ -667,6 +668,7 @@ function render() {
     else if (currentView === 'projects') renderProjects();
     else if (currentView === 'tasks') renderTasks(false);
     else if (currentView === 'submittals') renderSubmittals();
+    else if (currentView === 'post_install') renderPostInstall();
     else if (currentView === 'schedule') renderSchedule();
     else if (currentView === 'inbox') renderInbox(false);
     else if (currentView === 'photos') renderPhotos(false);
@@ -1294,34 +1296,224 @@ function renderInstallerJobs() {
 // ============================================================
 // INBOX
 // ============================================================
+let inboxSearch = '';
+let inboxFilter = 'all'; // all | needs_reply | customer_silent | unread
+let inboxExpanded = new Set(); // project ids with expanded threads
+let inboxRead = new Set(); // project ids marked read
+
+function classifyThread(project, messages) {
+  // Most recent message direction + age determines status
+  const sorted = [...messages].sort((a, b) => a.daysAgo - b.daysAgo);
+  const latest = sorted[0];
+  const isInboundLatest = latest.direction === 'inbound';
+
+  // Auto-confirmation noise: AHJ "received your application" and similar
+  const isAuto = latest.subject.toLowerCase().includes('received') ||
+                 latest.subject.toLowerCase().includes('confirmation') && latest.from.includes('.gov');
+
+  // Does customer owe us a reply?
+  const lastOutboundToCustomer = sorted.find(m => m.direction === 'outbound' && m.to && m.to.includes('@gmail.com'));
+  const laterInboundFromCustomer = lastOutboundToCustomer && sorted.find(m =>
+    m.direction === 'inbound' && m.from && m.from.includes('@gmail.com') && m.daysAgo < lastOutboundToCustomer.daysAgo
+  );
+  const customerSilent = lastOutboundToCustomer && !laterInboundFromCustomer && lastOutboundToCustomer.daysAgo >= 3;
+  const customerSilentDays = customerSilent ? lastOutboundToCustomer.daysAgo : 0;
+
+  // Needs reply: most recent message is inbound from a human (not auto) and not yet responded
+  const needsReply = isInboundLatest && !isAuto;
+
+  return { needsReply, customerSilent, customerSilentDays, isAuto, latest, count: messages.length };
+}
+
 function renderInbox(installerOnly) {
   const visible = visibleProjects();
-  let all = [];
-  visible.forEach(p => { buildEmails(p).forEach(e => all.push({ ...e, project: p })); });
-  if (installerOnly) all = all.filter(e => e.project.installer === CURRENT_INSTALLER);
-  all.sort((a, b) => a.daysAgo - b.daysAgo);
-  const emailRow = (e) => `
-    <div class="border-b border-haven-border hover:bg-haven-bg cursor-pointer px-4 py-3" data-project-id="${e.project.id}">
-      <div class="flex items-baseline justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="badge ${e.direction === 'outbound' ? 'badge-ok' : 'badge-neutral'}">${e.direction === 'outbound' ? '↑' : '↓'}</span>
-          <span class="font-medium truncate">${e.project.name}</span>
+
+  // Build threads: one per project
+  const threads = [];
+  visible.forEach(p => {
+    if (installerOnly && p.installer !== CURRENT_INSTALLER) return;
+    const messages = buildEmails(p);
+    if (messages.length === 0) return;
+    const meta = classifyThread(p, messages);
+    threads.push({ project: p, messages, ...meta });
+  });
+
+  // Search
+  const q = inboxSearch.trim().toLowerCase();
+  let filtered = threads;
+  if (q) {
+    filtered = filtered.filter(t =>
+      t.project.name.toLowerCase().includes(q) ||
+      t.project.city.toLowerCase().includes(q) ||
+      t.project.projectNumber.toLowerCase().includes(q) ||
+      t.messages.some(m =>
+        m.subject.toLowerCase().includes(q) ||
+        m.body.toLowerCase().includes(q) ||
+        m.from.toLowerCase().includes(q) ||
+        (m.to || '').toLowerCase().includes(q)
+      )
+    );
+  }
+
+  // Filter
+  if (inboxFilter === 'needs_reply') filtered = filtered.filter(t => t.needsReply);
+  else if (inboxFilter === 'customer_silent') filtered = filtered.filter(t => t.customerSilent);
+  else if (inboxFilter === 'unread') filtered = filtered.filter(t => !inboxRead.has(t.project.id));
+
+  // Sort: needs-reply first, then customer-silent, then by recency
+  filtered.sort((a, b) => {
+    const score = (t) => (t.needsReply ? 0 : 10) + (t.customerSilent ? 0 : 5) + (t.latest.daysAgo / 100);
+    return score(a) - score(b);
+  });
+
+  // Counts for filter chips
+  const allCount = threads.length;
+  const needsReplyCount = threads.filter(t => t.needsReply).length;
+  const customerSilentCount = threads.filter(t => t.customerSilent).length;
+  const unreadCount = threads.filter(t => !inboxRead.has(t.project.id)).length;
+
+  const chip = (key, label, count, tone) => `
+    <button class="filter-chip ${inboxFilter === key ? 'active' : ''}" onclick="setInboxFilter('${key}')"
+      ${inboxFilter !== key && tone === 'danger' && count > 0 ? 'style="border-color:#C44545;color:#C44545;"' : ''}
+      ${inboxFilter !== key && tone === 'warn' && count > 0 ? 'style="border-color:#E0A83A;color:#E0A83A;"' : ''}>
+      ${label} <span class="opacity-70 ml-1">${count}</span>
+    </button>`;
+
+  // Highlight search matches in a string
+  const hl = (s) => {
+    if (!q) return s;
+    const re = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig');
+    return s.replace(re, '<mark style="background:#C5E84A; color:#013300; padding:0 2px; border-radius:2px;">$1</mark>');
+  };
+
+  const threadRow = (t) => {
+    const p = t.project;
+    const isExpanded = inboxExpanded.has(p.id);
+    const isRead = inboxRead.has(p.id);
+    const latestWho = t.latest.direction === 'inbound'
+      ? t.latest.from.split('<')[0].trim()
+      : 'You to ' + (t.latest.to ? t.latest.to.split('<')[0].trim() : 'recipient');
+
+    // Status badge
+    let statusBadge = '';
+    if (t.needsReply) statusBadge = `<span class="badge badge-danger">Needs reply</span>`;
+    else if (t.customerSilent) statusBadge = `<span class="badge badge-warn">Silent ${t.customerSilentDays}d</span>`;
+    else if (t.isAuto) statusBadge = `<span class="badge badge-neutral">Auto</span>`;
+
+    const unreadDot = !isRead ? `<span class="w-2 h-2 rounded-full bg-haven-forest shrink-0" style="margin-top:6px"></span>` : `<span class="w-2 h-2 shrink-0"></span>`;
+
+    return `
+      <div class="border-b border-haven-border ${!isRead ? 'bg-white' : 'bg-haven-bg/50'}">
+        <div class="px-4 py-3 cursor-pointer hover:bg-haven-bg flex items-start gap-3" onclick="toggleInboxThread('${p.id}')">
+          ${unreadDot}
+          <div class="flex-1 min-w-0">
+            <div class="flex items-baseline justify-between gap-3 mb-0.5">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="${!isRead ? 'font-semibold' : 'font-medium'} text-haven-ink truncate">${hl(p.name)}</span>
+                <span class="text-xs text-haven-muted shrink-0">· ${p.city}, ${p.state}</span>
+                <span class="text-[11px] text-haven-muted shrink-0">· ${t.count} ${t.count === 1 ? 'msg' : 'msgs'}</span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                ${statusBadge}
+                <span class="text-xs text-haven-muted">${t.latest.daysAgo === 0 ? 'today' : `${t.latest.daysAgo}d`}</span>
+              </div>
+            </div>
+            <div class="text-sm ${!isRead ? 'text-haven-ink' : 'text-haven-muted'} truncate">
+              <span class="text-xs text-haven-muted mr-1.5">${t.latest.direction === 'inbound' ? '↓' : '↑'} ${latestWho}:</span>${hl(t.latest.subject)}
+            </div>
+            <div class="text-xs text-haven-muted truncate mt-0.5">${hl(t.latest.body.replace(/\n/g, ' ').substring(0, 180))}</div>
+          </div>
         </div>
-        <span class="text-xs text-haven-muted shrink-0">${e.daysAgo === 0 ? 'today' : `${e.daysAgo}d ago`}</span>
-      </div>
-      <div class="text-sm mt-1 truncate text-haven-ink">${e.subject}</div>
-      <div class="text-xs text-haven-muted mt-1 truncate">${e.body.replace(/\n/g, ' ').substring(0, 140)}…</div>
-    </div>`;
+        ${isExpanded ? `
+          <div class="bg-haven-bg px-4 py-3 border-t border-haven-border">
+            <div class="flex items-center justify-between mb-3">
+              <button class="text-xs text-haven-forest hover:underline" onclick="openProjectModal('${p.id}')">Open project →</button>
+              <div class="flex gap-2">
+                <button class="btn btn-secondary text-xs" onclick="event.stopPropagation(); markInboxRead('${p.id}')">${isRead ? 'Mark unread' : 'Mark read'}</button>
+                <button class="btn btn-accent text-xs" onclick="event.stopPropagation(); alert('Reply draft opened (demo)')">Reply</button>
+              </div>
+            </div>
+            <div class="space-y-2">
+              ${t.messages.map(m => `
+                <div class="email-bubble ${m.direction === 'outbound' ? 'outbound' : ''}" style="font-size: 13px;">
+                  <div class="email-header">
+                    <div class="min-w-0 flex-1">
+                      <div class="text-[11px] text-haven-muted">${m.direction === 'outbound' ? 'To: ' : 'From: '}<span class="text-haven-ink">${hl(m.direction === 'outbound' ? (m.to || '') : m.from)}</span></div>
+                      <div class="text-sm font-medium mt-0.5 truncate">${hl(m.subject)}</div>
+                    </div>
+                    <span class="text-[11px] text-haven-muted shrink-0">${m.daysAgo === 0 ? 'today' : `${m.daysAgo}d ago`}</span>
+                  </div>
+                  <div class="text-sm text-haven-ink whitespace-pre-line mt-2 leading-relaxed">${hl(m.body)}</div>
+                </div>`).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>`;
+  };
+
   main.innerHTML = `
     <div class="p-6 max-w-5xl">
-      <div class="mb-6">
-        <h1 class="font-serif text-2xl font-bold text-haven-forest">${installerOnly ? 'Messages' : 'Inbox'}</h1>
-        <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${all.length} messages</p>
+      <div class="flex items-baseline justify-between mb-4">
+        <div>
+          <h1 class="font-serif text-2xl font-bold text-haven-forest">${installerOnly ? 'Messages' : 'Inbox'}</h1>
+          <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${threads.length} conversations</p>
+        </div>
       </div>
-      <div class="card p-0 overflow-hidden">${all.length ? all.map(emailRow).join('') : '<div class="p-8 text-center text-haven-muted">No messages</div>'}</div>
+
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        ${chip('all', 'All', allCount)}
+        ${chip('needs_reply', 'Needs reply', needsReplyCount, 'danger')}
+        ${chip('customer_silent', 'Customer silent', customerSilentCount, 'warn')}
+        ${chip('unread', 'Unread', unreadCount)}
+        <div class="flex-1"></div>
+        <div class="relative">
+          <input type="text" id="inboxSearchInput" placeholder="Search name, subject, body…" value="${inboxSearch.replace(/"/g, '&quot;')}"
+            class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-72" />
+          <svg class="absolute left-2.5 top-2 w-4 h-4 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          ${inboxSearch ? `<button onclick="clearInboxSearch()" class="absolute right-2 top-2 text-haven-muted hover:text-haven-ink text-sm">×</button>` : ''}
+        </div>
+      </div>
+
+      ${q && filtered.length > 0 ? `<div class="text-xs text-haven-muted mb-2">${filtered.length} ${filtered.length === 1 ? 'match' : 'matches'} for "${inboxSearch}"</div>` : ''}
+
+      <div class="card p-0 overflow-hidden">
+        ${filtered.length === 0 ? `
+          <div class="p-12 text-center">
+            <div class="text-haven-muted mb-2">${q ? `No results for "${inboxSearch}"` : 'Nothing to show'}</div>
+            ${q ? `<button class="text-xs text-haven-forest hover:underline" onclick="clearInboxSearch()">Clear search</button>` : ''}
+          </div>
+        ` : filtered.map(threadRow).join('')}
+      </div>
     </div>`;
-  attachProjectHandlers();
+
+  // Wire up search input
+  const s = document.getElementById('inboxSearchInput');
+  if (s) {
+    s.addEventListener('input', (e) => {
+      inboxSearch = e.target.value;
+      render();
+      setTimeout(() => {
+        const el = document.getElementById('inboxSearchInput');
+        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+      }, 0);
+    });
+  }
 }
+
+window.setInboxFilter = (k) => { inboxFilter = k; render(); };
+window.toggleInboxThread = (id) => {
+  if (inboxExpanded.has(id)) inboxExpanded.delete(id);
+  else { inboxExpanded.add(id); inboxRead.add(id); }
+  render();
+};
+window.markInboxRead = (id) => {
+  if (inboxRead.has(id)) inboxRead.delete(id);
+  else inboxRead.add(id);
+  render();
+};
+window.clearInboxSearch = () => { inboxSearch = ''; render(); };
 
 // ============================================================
 // PHOTOS
@@ -1362,7 +1554,437 @@ function renderPhotos(installerOnly) {
 }
 
 // ============================================================
-// METRICS — cycle time + bottlenecks + time allocation
+// POST-INSTALL TRACKING
+// ============================================================
+// A post-install record exists for every project that has been installed.
+// Tracks: inspection, PTO submitted, PTO complete, ICF complete milestones,
+// plus who the project is currently waiting on ("ball in court")
+
+const BALL_IN_COURT_GROUPS = {
+  utility: { label: 'Utility', color: '#3A6EA8',
+    reasons: ['PTO Submitted', 'Clarification', 'Transformer Upgrade', 'Pending pre-approval'] },
+  franklin_sce: { label: 'Franklin/SCE', color: '#E07A3A',
+    reasons: ['SOO'] },
+  customer: { label: 'Customer', color: '#D84A7A',
+    reasons: ['Customer Signature', 'Escalation'] },
+  interconnection: { label: 'Interconnection', color: '#7AC74F',
+    reasons: ['GIPT Delay', 'Ready to Submit', 'Utility Clarification'] },
+  installer: { label: 'Installer', color: '#3BBF9E',
+    reasons: ['Missing Photo'] },
+};
+
+// Seed synthetic historical installs so we have 12 months of data for the cohort view.
+// These simulate projects that have been installed at various points over the last year.
+function buildPostInstallRecords() {
+  const records = [];
+  // Use a fixed seed so demo data is stable across renders
+  let seed = 42;
+  const rand = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+
+  const months = [
+    { label: 'Apr 2025', total: 24 }, { label: 'May 2025', total: 39 },
+    { label: 'Jun 2025', total: 48 }, { label: 'Jul 2025', total: 52 },
+    { label: 'Aug 2025', total: 59 }, { label: 'Sep 2025', total: 68 },
+    { label: 'Oct 2025', total: 82 }, { label: 'Nov 2025', total: 77 },
+    { label: 'Dec 2025', total: 82 }, { label: 'Jan 2026', total: 107 },
+    { label: 'Feb 2026', total: 95 }, { label: 'Mar 2026', total: 13 },
+  ];
+
+  let recId = 1;
+  months.forEach((m, monthIdx) => {
+    // Older cohorts are further along; newer cohorts are mostly still in flight
+    const ageMonths = months.length - 1 - monthIdx;
+    for (let i = 0; i < m.total; i++) {
+      // Completion probabilities decay with recency
+      const inspectionComplete = rand() < Math.min(0.97, 0.55 + ageMonths * 0.08);
+      const ptoSubmitted = inspectionComplete && rand() < Math.min(0.97, 0.60 + ageMonths * 0.07);
+      const ptoComplete = ptoSubmitted && rand() < Math.min(0.95, 0.35 + ageMonths * 0.10);
+      const icfComplete = ptoComplete && rand() < Math.min(0.95, 0.10 + ageMonths * 0.10);
+
+      // Pick a "ball in court" reason if not fully complete
+      let ballInCourt = null;
+      if (!icfComplete) {
+        // Newer cohorts mostly waiting on utility (PTO); older stragglers more varied
+        if (!ptoSubmitted) {
+          const r = rand();
+          if (r < 0.6) ballInCourt = { group: 'interconnection', reason: 'Ready to Submit', daysInHold: Math.floor(rand() * 45) + 3 };
+          else if (r < 0.85) ballInCourt = { group: 'installer', reason: 'Missing Photo', daysInHold: Math.floor(rand() * 50) + 5 };
+          else ballInCourt = { group: 'customer', reason: 'Customer Signature', daysInHold: Math.floor(rand() * 30) + 2 };
+        } else if (!ptoComplete) {
+          const r = rand();
+          if (r < 0.75) ballInCourt = { group: 'utility', reason: 'PTO Submitted', daysInHold: Math.floor(rand() * 60) + 10 };
+          else if (r < 0.82) ballInCourt = { group: 'utility', reason: 'Clarification', daysInHold: Math.floor(rand() * 80) + 20 };
+          else if (r < 0.85) ballInCourt = { group: 'utility', reason: 'Transformer Upgrade', daysInHold: Math.floor(rand() * 180) + 60 };
+          else if (r < 0.87) ballInCourt = { group: 'utility', reason: 'Pending pre-approval', daysInHold: Math.floor(rand() * 10) + 1 };
+          else if (r < 0.97) ballInCourt = { group: 'franklin_sce', reason: 'SOO', daysInHold: Math.floor(rand() * 50) + 10 };
+          else ballInCourt = { group: 'customer', reason: 'Escalation', daysInHold: Math.floor(rand() * 140) + 40 };
+        } else if (!icfComplete) {
+          const r = rand();
+          if (r < 0.6) ballInCourt = { group: 'interconnection', reason: 'GIPT Delay', daysInHold: Math.floor(rand() * 15) + 1 };
+          else if (r < 0.85) ballInCourt = { group: 'interconnection', reason: 'Utility Clarification', daysInHold: Math.floor(rand() * 20) + 3 };
+          else ballInCourt = { group: 'customer', reason: 'Customer Signature', daysInHold: Math.floor(rand() * 25) + 2 };
+        }
+      }
+
+      // Synthesize a customer name and coordinator for drill-through
+      const firstNames = ['Alex','Jordan','Sam','Morgan','Casey','Taylor','Riley','Jamie','Chris','Pat','Drew','Blake','Hayden','Quinn','Avery','Reese','Sage','River','Parker','Rowan'];
+      const lastNames = ['Rivera','Chen','Park','Singh','Walsh','Cohen','Nakamura','Hassan','Okafor','Volkov','Andersson','Silva','Kim','Nguyen','Dubois','Rossi','Fischer','Lopez','Brennan','Yamada'];
+      const cities = ['San Jose','Oakland','Fremont','Berkeley','Sunnyvale','San Mateo','Hayward','Mountain View','Redwood City','Pasadena','Long Beach','Irvine','San Diego','Pacifica','Half Moon Bay'];
+      const utilities = ['PG&E','SCE','SDG&E','PCE'];
+      const name = `${firstNames[Math.floor(rand() * firstNames.length)]} ${lastNames[Math.floor(rand() * lastNames.length)]}`;
+      const coord = COORDINATORS[Math.floor(rand() * COORDINATORS.length)];
+      const installer = INSTALLERS[Math.floor(rand() * INSTALLERS.length)];
+      const utility = utilities[Math.floor(rand() * utilities.length)];
+      const city = cities[Math.floor(rand() * cities.length)];
+      const installDaysAgo = ageMonths * 30 + Math.floor(rand() * 28);
+
+      records.push({
+        id: `pi${recId++}`,
+        projectNumber: `HVN-2025-${String(recId).padStart(4, '0')}`,
+        name, coord, installer, utility, city,
+        installMonth: m.label, installDaysAgo,
+        inspectionComplete, ptoSubmitted, ptoComplete, icfComplete,
+        ballInCourt,
+      });
+    }
+  });
+  return { records, months };
+}
+
+const POST_INSTALL = buildPostInstallRecords();
+
+// ============================================================
+// METRICS SUBCOMPONENTS
+// ============================================================
+let ballInCourtFilter = 'all'; // all | inspection | interconnection
+let expandedBICGroups = new Set(['utility']); // which groups are expanded
+
+function renderBallInCourt() {
+  const recs = POST_INSTALL.records.filter(r => {
+    if (r.icfComplete) return false;
+    if (!r.ballInCourt) return false;
+    if (ballInCourtFilter === 'all') return true;
+    if (ballInCourtFilter === 'inspection') return !r.inspectionComplete;
+    if (ballInCourtFilter === 'interconnection') return r.inspectionComplete && !r.ptoComplete;
+    return true;
+  });
+
+  const totalActivePostInstall = POST_INSTALL.records.filter(r => !r.icfComplete && r.ballInCourt).length;
+  const inInspection = POST_INSTALL.records.filter(r => !r.icfComplete && r.ballInCourt && !r.inspectionComplete).length;
+  const inInterconnection = POST_INSTALL.records.filter(r => !r.icfComplete && r.ballInCourt && r.inspectionComplete && !r.ptoComplete).length;
+  const externalHolds = POST_INSTALL.records.filter(r => !r.icfComplete && r.ballInCourt && ['utility','franklin_sce','customer'].includes(r.ballInCourt.group)).length;
+
+  // Group records by BIC group, then by reason within group
+  const byGroup = {};
+  Object.keys(BALL_IN_COURT_GROUPS).forEach(g => byGroup[g] = { count: 0, reasons: {} });
+  recs.forEach(r => {
+    const g = r.ballInCourt.group;
+    if (!byGroup[g]) return;
+    byGroup[g].count++;
+    const reason = r.ballInCourt.reason;
+    if (!byGroup[g].reasons[reason]) byGroup[g].reasons[reason] = { count: 0, totalDays: 0 };
+    byGroup[g].reasons[reason].count++;
+    byGroup[g].reasons[reason].totalDays += r.ballInCourt.daysInHold;
+  });
+
+  // Group-level avg days (weighted)
+  Object.keys(byGroup).forEach(g => {
+    const reasons = byGroup[g].reasons;
+    let totalCount = 0, totalDays = 0;
+    Object.values(reasons).forEach(r => { totalCount += r.count; totalDays += r.totalDays; });
+    byGroup[g].avgDays = totalCount ? Math.round(totalDays / totalCount) : 0;
+  });
+
+  const maxGroupCount = Math.max(1, ...Object.values(byGroup).map(g => g.count));
+  const totalActive = recs.length || 1;
+
+  const dayColorClass = (d) => d >= 30 ? 'text-haven-danger' : d >= 14 ? 'text-haven-warn' : 'text-haven-muted';
+
+  const filterBtn = (key, label) => `<button class="filter-chip ${ballInCourtFilter === key ? 'active' : ''}" onclick="setBICFilter('${key}')">${label}</button>`;
+
+  const kpi = (n, label) => `
+    <div class="card px-4 py-3" style="background:#1a1f1a; color:white; border-color:#2a2f2a;">
+      <div class="font-serif font-bold text-3xl">${n}</div>
+      <div class="text-[10px] uppercase tracking-wider text-white/60 mt-1">${label}</div>
+    </div>`;
+
+  return `
+    <div class="card mb-6" style="background: #12161a; color: white; border-color: #1f2428;">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="font-serif font-bold text-xl text-white">Post-Install Tracking</h2>
+          <p class="text-sm mt-1" style="color:#8a9098;">Projects awaiting inspection, PTO, and ICF</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-4 gap-3 mb-5">
+        ${kpi(POST_INSTALL.records.length, 'Total Installs')}
+        ${kpi(inInspection, 'Inspection')}
+        ${kpi(inInterconnection, 'Interconnection')}
+        ${kpi(externalHolds, 'External Holds')}
+      </div>
+
+      <div class="flex items-center justify-between mb-3 pt-4" style="border-top: 1px solid #1f2428;">
+        <div>
+          <div class="text-xs uppercase tracking-wider" style="color:#8a9098;">Ball in court</div>
+          <div class="text-sm mt-0.5" style="color:#c4c8cc;">Who is holding up the pipeline right now</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="filter-chip ${ballInCourtFilter === 'all' ? 'active' : ''}" style="${ballInCourtFilter !== 'all' ? 'background:transparent;color:#c4c8cc;border-color:#2a2f2a;' : ''}" onclick="setBICFilter('all')">All</button>
+          <button class="filter-chip ${ballInCourtFilter === 'inspection' ? 'active' : ''}" style="${ballInCourtFilter !== 'inspection' ? 'background:transparent;color:#c4c8cc;border-color:#2a2f2a;' : ''}" onclick="setBICFilter('inspection')">Inspection</button>
+          <button class="filter-chip ${ballInCourtFilter === 'interconnection' ? 'active' : ''}" style="${ballInCourtFilter !== 'interconnection' ? 'background:transparent;color:#c4c8cc;border-color:#2a2f2a;' : ''}" onclick="setBICFilter('interconnection')">Interconnection</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-[1fr_auto_auto] gap-x-4 text-xs mb-2" style="color:#8a9098;">
+        <div></div>
+        <div class="text-right">COUNT / %</div>
+        <div class="text-right min-w-[60px]">AVG DAYS</div>
+      </div>
+
+      <div class="space-y-1">
+        ${Object.entries(BALL_IN_COURT_GROUPS).map(([key, cfg]) => {
+          const g = byGroup[key];
+          if (g.count === 0) return '';
+          const pct = Math.round((g.count / totalActive) * 100);
+          const barPct = (g.count / maxGroupCount) * 100;
+          const isExpanded = expandedBICGroups.has(key);
+          return `
+            <div>
+              <div class="grid grid-cols-[1fr_auto_auto] gap-x-4 items-center py-2 cursor-pointer" onclick="toggleBICGroup('${key}')" style="border-top: 1px solid #1f2428;">
+                <div class="flex items-center gap-3">
+                  <div class="font-semibold text-white w-32">${cfg.label}</div>
+                  <div class="flex-1 h-2.5 rounded-full" style="background: #1f2428;">
+                    <div class="h-full rounded-full transition-all" style="width:${barPct}%; background:${cfg.color};"></div>
+                  </div>
+                </div>
+                <div class="text-right tabular-nums" style="color:#c4c8cc;">
+                  <span class="font-semibold text-white">${g.count}</span> <span style="color:#8a9098;">${pct}%</span>
+                </div>
+                <div class="text-right min-w-[60px] ${dayColorClass(g.avgDays)} font-semibold tabular-nums">
+                  ${g.avgDays}d <span style="color:#5a6068;">${isExpanded ? '▲' : '▼'}</span>
+                </div>
+              </div>
+              ${isExpanded ? Object.entries(g.reasons).sort((a,b) => b[1].count - a[1].count).map(([reason, r]) => {
+                const reasonPct = Math.round((r.count / g.count) * 100);
+                const avgD = Math.round(r.totalDays / r.count);
+                const reasonBarPct = (r.count / g.count) * 100;
+                return `
+                  <div class="grid grid-cols-[1fr_auto_auto] gap-x-4 items-center py-1.5 pl-8 text-sm" style="color:#c4c8cc;">
+                    <div class="flex items-center gap-3">
+                      <div class="w-24" style="color:#c4c8cc;">${reason}</div>
+                      <div class="flex-1 h-1.5 rounded-full" style="background: #1f2428;">
+                        <div class="h-full rounded-full" style="width:${reasonBarPct}%; background:${cfg.color}; opacity:0.7;"></div>
+                      </div>
+                    </div>
+                    <div class="text-right tabular-nums"><span class="font-semibold text-white">${r.count}</span> <span style="color:#8a9098;">${reasonPct}%</span></div>
+                    <div class="text-right min-w-[60px] ${dayColorClass(avgD)} font-semibold tabular-nums">${avgD}d</div>
+                  </div>`;
+              }).join('') : ''}
+            </div>`;
+        }).join('')}
+      </div>
+
+      <div class="mt-4 pt-3 text-xs" style="color:#8a9098; border-top: 1px solid #1f2428;">
+        Avg days: <span style="color:#E0A83A;">■</span> 14–29 days &nbsp; <span style="color:#C44545;">■</span> 30+ days
+      </div>
+    </div>
+  `;
+}
+
+function renderInstallsByMonth() {
+  const rows = POST_INSTALL.months.slice().reverse().map(m => {
+    const cohort = POST_INSTALL.records.filter(r => r.installMonth === m.label);
+    const total = cohort.length;
+    const inspection = cohort.filter(r => r.inspectionComplete).length;
+    const ptoSub = cohort.filter(r => r.ptoSubmitted).length;
+    const ptoDone = cohort.filter(r => r.ptoComplete).length;
+    const icfDone = cohort.filter(r => r.icfComplete).length;
+    const icfPending = total - icfDone;
+    const pct = total ? Math.round((icfDone / total) * 100) : 0;
+    return { month: m.label, total, inspection, ptoSub, ptoDone, icfDone, icfPending, pct };
+  });
+
+  return `
+    <div class="card mb-6" style="background: #0e1418; color: white; border-color: #1a2128;">
+      <div class="flex items-center gap-2 mb-1">
+        <div class="text-cyan-400">📅</div>
+        <h2 class="font-serif font-bold text-xl text-cyan-300">Installs by Month</h2>
+      </div>
+      <p class="text-sm mb-4" style="color:#8a9098;">Total installs per month with completion status for each milestone</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs uppercase tracking-wide border-b" style="color:#8a9098; border-color:#1a2128;">
+              <th class="pb-3 pr-4">Month</th>
+              <th class="pb-3 px-4" style="color:#8a9098;">Total Installs</th>
+              <th class="pb-3 px-4" style="color:#60a5fa;">Inspection Complete</th>
+              <th class="pb-3 px-4" style="color:#fb923c;">PTO Submitted</th>
+              <th class="pb-3 px-4" style="color:#22d3ee;">PTO Complete</th>
+              <th class="pb-3 px-4" style="color:#4ade80;">ICF Complete</th>
+              <th class="pb-3 px-4" style="color:#fbbf24;">ICF Pending</th>
+              <th class="pb-3 pl-4" style="color:#8a9098;">ICF Progress</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr class="border-b" style="border-color:#1a2128;">
+                <td class="py-3 pr-4" style="color:#c4c8cc;">${r.month}</td>
+                <td class="py-3 px-4 font-bold text-white text-base">${r.total}</td>
+                <td class="py-3 px-4 font-bold text-base" style="color:#60a5fa;">${r.inspection}</td>
+                <td class="py-3 px-4 font-bold text-base" style="color:#fb923c;">${r.ptoSub}</td>
+                <td class="py-3 px-4 font-bold text-base" style="color:#22d3ee;">${r.ptoDone}</td>
+                <td class="py-3 px-4 font-bold text-base" style="color:#4ade80;">${r.icfDone}</td>
+                <td class="py-3 px-4 font-bold text-base" style="color:#fbbf24;">${r.icfPending}</td>
+                <td class="py-3 pl-4">
+                  <div class="flex items-center gap-2">
+                    <div class="flex-1 h-2 rounded-full min-w-[80px]" style="background:#1a2128;">
+                      <div class="h-full rounded-full" style="width:${r.pct}%; background:#22c55e;"></div>
+                    </div>
+                    <span class="text-xs tabular-nums" style="color:#8a9098;">${r.pct}%</span>
+                  </div>
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="mt-4 pt-3 text-xs" style="color:#8a9098; border-top: 1px solid #1a2128;">
+        Inspection Complete = Passed or has PTO · PTO Submitted = Has PTO submitted date or PTO complete · PTO Complete = Has PTO date · ICF Complete = ICF: Pending Payment or Payment: Completed
+      </div>
+    </div>
+  `;
+}
+
+window.setBICFilter = (k) => { ballInCourtFilter = k; render(); };
+window.toggleBICGroup = (k) => {
+  if (expandedBICGroups.has(k)) expandedBICGroups.delete(k);
+  else expandedBICGroups.add(k);
+  render();
+};
+
+// ============================================================
+// POST-INSTALL VIEW — per-project milestone tracker
+// ============================================================
+let postInstallMilestoneFilter = 'all'; // all | no_inspection | no_pto_submitted | no_pto | no_icf
+let postInstallSearch = '';
+
+function renderPostInstall() {
+  let recs = POST_INSTALL.records.filter(r => !r.icfComplete);
+
+  if (postInstallMilestoneFilter === 'no_inspection') recs = recs.filter(r => !r.inspectionComplete);
+  else if (postInstallMilestoneFilter === 'no_pto_submitted') recs = recs.filter(r => r.inspectionComplete && !r.ptoSubmitted);
+  else if (postInstallMilestoneFilter === 'no_pto') recs = recs.filter(r => r.ptoSubmitted && !r.ptoComplete);
+  else if (postInstallMilestoneFilter === 'no_icf') recs = recs.filter(r => r.ptoComplete && !r.icfComplete);
+
+  if (postInstallSearch) {
+    const q = postInstallSearch.toLowerCase();
+    recs = recs.filter(r => r.name.toLowerCase().includes(q) || r.city.toLowerCase().includes(q) || r.projectNumber.toLowerCase().includes(q));
+  }
+
+  // Sort: longest in hold first
+  recs.sort((a, b) => (b.ballInCourt?.daysInHold || 0) - (a.ballInCourt?.daysInHold || 0));
+
+  const allPostInstall = POST_INSTALL.records.filter(r => !r.icfComplete);
+  const counts = {
+    all: allPostInstall.length,
+    no_inspection: allPostInstall.filter(r => !r.inspectionComplete).length,
+    no_pto_submitted: allPostInstall.filter(r => r.inspectionComplete && !r.ptoSubmitted).length,
+    no_pto: allPostInstall.filter(r => r.ptoSubmitted && !r.ptoComplete).length,
+    no_icf: allPostInstall.filter(r => r.ptoComplete && !r.icfComplete).length,
+  };
+
+  const mcell = (done) => done
+    ? '<div class="w-6 h-6 rounded-full flex items-center justify-center" style="background:#2F7A3E; color:white; font-size:12px;">✓</div>'
+    : '<div class="w-6 h-6 rounded-full border-2 border-haven-border bg-white"></div>';
+
+  const chip = (key, label, count) => `
+    <button class="filter-chip ${postInstallMilestoneFilter === key ? 'active' : ''}" onclick="setPIFilter('${key}')">
+      ${label} <span class="opacity-70 ml-1">${count}</span>
+    </button>`;
+
+  main.innerHTML = `
+    <div class="p-6 max-w-[1400px]">
+      <div class="mb-5">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Post-Install</h1>
+        <p class="text-sm text-haven-muted mt-1">Every project that's been installed and its milestone status · ${recs.length} shown</p>
+      </div>
+
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        ${chip('all', 'All open', counts.all)}
+        ${chip('no_inspection', 'No inspection', counts.no_inspection)}
+        ${chip('no_pto_submitted', 'No PTO submitted', counts.no_pto_submitted)}
+        ${chip('no_pto', 'No PTO', counts.no_pto)}
+        ${chip('no_icf', 'No ICF', counts.no_icf)}
+        <div class="flex-1"></div>
+        <input type="text" id="piSearch" placeholder="Search name, city, project #…" value="${postInstallSearch}" class="px-3 py-1.5 border border-haven-border rounded-md text-sm bg-white w-64" />
+      </div>
+
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-haven-bg border-b border-haven-border">
+            <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
+              <th class="px-3 py-2.5">Project</th>
+              <th class="px-3 py-2.5">Location</th>
+              <th class="px-3 py-2.5">Utility</th>
+              <th class="px-3 py-2.5">Coord</th>
+              <th class="px-3 py-2.5">Installed</th>
+              <th class="px-3 py-2.5 text-center">Inspection</th>
+              <th class="px-3 py-2.5 text-center">PTO Sub</th>
+              <th class="px-3 py-2.5 text-center">PTO Done</th>
+              <th class="px-3 py-2.5 text-center">ICF</th>
+              <th class="px-3 py-2.5">Waiting on</th>
+              <th class="px-3 py-2.5">Days in hold</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recs.length === 0 ? '<tr><td colspan="11" class="px-4 py-8 text-center text-haven-muted">No projects match</td></tr>' : recs.slice(0, 100).map(r => {
+              const bic = r.ballInCourt;
+              const bicGroup = bic ? BALL_IN_COURT_GROUPS[bic.group] : null;
+              const d = bic?.daysInHold || 0;
+              const dayClass = d >= 30 ? 'text-haven-danger font-medium' : d >= 14 ? 'text-haven-warn font-medium' : 'text-haven-muted';
+              return `
+                <tr class="border-b border-haven-border hover:bg-haven-bg">
+                  <td class="px-3 py-2.5">
+                    <div class="font-medium text-haven-forest">${r.name}</div>
+                    <div class="text-[11px] text-haven-muted">${r.projectNumber}</div>
+                  </td>
+                  <td class="px-3 py-2.5 text-haven-muted">${r.city}</td>
+                  <td class="px-3 py-2.5 text-haven-muted">${r.utility}</td>
+                  <td class="px-3 py-2.5">${avatar(r.coord, 18)} <span class="text-xs ml-1 align-middle">${r.coord.split(' ')[0]}</span></td>
+                  <td class="px-3 py-2.5 text-xs text-haven-muted">${r.installDaysAgo}d ago</td>
+                  <td class="px-3 py-2.5"><div class="flex justify-center">${mcell(r.inspectionComplete)}</div></td>
+                  <td class="px-3 py-2.5"><div class="flex justify-center">${mcell(r.ptoSubmitted)}</div></td>
+                  <td class="px-3 py-2.5"><div class="flex justify-center">${mcell(r.ptoComplete)}</div></td>
+                  <td class="px-3 py-2.5"><div class="flex justify-center">${mcell(r.icfComplete)}</div></td>
+                  <td class="px-3 py-2.5">
+                    ${bic ? `<div class="flex items-center gap-2">
+                      <div class="w-2 h-2 rounded-full" style="background:${bicGroup.color};"></div>
+                      <div>
+                        <div class="text-xs font-medium">${bicGroup.label}</div>
+                        <div class="text-[11px] text-haven-muted">${bic.reason}</div>
+                      </div>
+                    </div>` : '<span class="text-xs text-haven-muted">—</span>'}
+                  </td>
+                  <td class="px-3 py-2.5 ${dayClass} tabular-nums">${bic ? `${d}d` : '—'}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        ${recs.length > 100 ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first 100 of ${recs.length}</div>` : ''}
+      </div>
+    </div>
+  `;
+
+  const s = document.getElementById('piSearch');
+  if (s) {
+    s.addEventListener('input', (e) => { postInstallSearch = e.target.value; render(); setTimeout(() => { const el = document.getElementById('piSearch'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0); });
+  }
+}
+
+window.setPIFilter = (k) => { postInstallMilestoneFilter = k; render(); };
+
+// ============================================================
+// METRICS — cycle time + post-install + coordinator load
 // ============================================================
 function renderMetrics() {
   const active = PROJECTS.filter(p => p.stage !== 'completed');
@@ -1382,10 +2004,7 @@ function renderMetrics() {
   const totalCycle = stageAvgs.reduce((a, s) => a + s.avg, 0);
   const handoffSum = COMPLETED_STAGE_DURATIONS.handoff_gaps.reduce((a, b) => a + b, 0);
 
-  // Bottleneck: AHJs/utilities with median 2x the overall median
-  const stats = Object.entries(EXTERNAL_PARTY_STATS);
-  const overallMedian = [...stats].sort((a,b) => a[1].median - b[1].median)[Math.floor(stats.length / 2)][1].median;
-  const bottlenecks = stats.filter(([_, s]) => s.median >= overallMedian * 1.5).sort((a, b) => b[1].median - a[1].median);
+  // Post-install data is computed in buildPostInstallRecords() below
 
   // Coord health
   const coordHealth = COORDINATORS.map(c => {
@@ -1407,7 +2026,7 @@ function renderMetrics() {
     <div class="p-6 max-w-6xl">
       <div class="mb-6">
         <h1 class="font-serif text-2xl font-bold text-haven-forest">Metrics</h1>
-        <p class="text-sm text-haven-muted mt-1">Cycle time, bottlenecks, and slippage risk</p>
+        <p class="text-sm text-haven-muted mt-1">Cycle time, post-install tracking, and coordinator load</p>
       </div>
 
       <div class="grid grid-cols-4 gap-4 mb-6">
@@ -1451,29 +2070,9 @@ function renderMetrics() {
         </div>
       </div>
 
-      <div class="card mb-6">
-        <h2 class="font-serif font-bold text-haven-forest mb-1">Bottleneck detection</h2>
-        <p class="text-xs text-haven-muted mb-4">AHJs and utilities running >1.5x the overall median (${overallMedian}d)</p>
-        <table class="w-full text-sm">
-          <thead><tr class="text-left text-xs text-haven-muted uppercase border-b border-haven-border">
-            <th class="pb-2">Recipient</th><th class="pb-2">Type</th><th class="pb-2">Median</th><th class="pb-2">vs Overall</th><th class="pb-2">Suggested action</th>
-          </tr></thead>
-          <tbody>
-            ${bottlenecks.length === 0 ? '<tr><td colspan="5" class="py-4 text-center text-haven-muted">No bottlenecks detected</td></tr>' : bottlenecks.map(([name, s]) => {
-              const multiple = (s.median / overallMedian).toFixed(1);
-              const type = ['PG&E','SCE','SDG&E','PCE','National Grid','Eversource'].includes(name) ? 'Utility' : 'AHJ';
-              const action = s.median >= overallMedian * 2 ? 'Escalate — consider direct relationship' : 'Pre-submit earlier to compensate';
-              return `<tr class="border-b border-haven-border">
-                <td class="py-2 font-medium">${name}</td>
-                <td class="py-2 text-haven-muted text-xs">${type}</td>
-                <td class="py-2 text-haven-danger font-medium">${s.median}d</td>
-                <td class="py-2 text-haven-danger">${multiple}x</td>
-                <td class="py-2 text-xs text-haven-muted">${action}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
+      ${renderBallInCourt()}
+
+      ${renderInstallsByMonth()}
 
       <div class="card mb-6">
         <h2 class="font-serif font-bold text-haven-forest mb-4">Coordinator health</h2>
