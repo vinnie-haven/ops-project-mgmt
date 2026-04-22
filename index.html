@@ -853,157 +853,8 @@ function batteryModel(p) {
   return 'Tesla Powerwall 3 (x2)';
 }
 
-// Seed runbook state for projects at scheduling, installation, inspection, interconnection, rebate
-PROJECTS.forEach(p => {
-  const d = INSTALLER_PROJECT_DATA[p.id];
-  if (!d || !p.installer) return;
-  if (!['scheduling', 'installation', 'inspection', 'interconnection', 'rebate', 'completed'].includes(p.stage)) return;
-
-  // Determine runbook phase
-  let runbookPhase;
-  if (!d.installConfirmedDate) runbookPhase = 'upcoming';
-  else if (!d.installCompletedAt) {
-    // Is install date today?
-    const today = new Date().toISOString().slice(0, 10);
-    if (d.installConfirmedDate <= today) runbookPhase = 'in_progress';
-    else runbookPhase = 'upcoming';
-  } else runbookPhase = 'complete';
-
-  // Photo upload state — fill in based on runbook phase
-  const photoUploads = {};
-  RUNBOOK_PHOTO_SPEC.forEach(spec => {
-    photoUploads[spec.category] = {
-      uploaded: false,
-      uploadedAt: null,
-      gradient: `photo-${1 + Math.floor(Math.random() * 8)}`,
-    };
-  });
-
-  if (runbookPhase === 'in_progress' || runbookPhase === 'complete') {
-    // Pre-install photos done
-    RUNBOOK_PHOTO_SPEC.filter(s => s.phase === 'pre').forEach(s => {
-      if (s.required || Math.random() < 0.8) {
-        photoUploads[s.category].uploaded = true;
-        photoUploads[s.category].uploadedAt = d.installCompletedAt ? d.installCompletedAt - 86400000 : Date.now() - 86400000;
-      }
-    });
-  }
-
-  if (runbookPhase === 'complete') {
-    // During + post photos mostly done
-    RUNBOOK_PHOTO_SPEC.filter(s => s.phase === 'during' || s.phase === 'post').forEach(s => {
-      if (Math.random() < 0.92) {
-        photoUploads[s.category].uploaded = true;
-        photoUploads[s.category].uploadedAt = d.installCompletedAt;
-      }
-    });
-  }
-
-  // Equipment checklist — all done by the morning if install is in progress or complete
-  const equipmentChecklist = [
-    { key: 'panels', label: `${panelCount(p)} solar panels on truck`, checked: runbookPhase !== 'upcoming' },
-    { key: 'inverter', label: `Inverter (${inverterModel(p)})`, checked: runbookPhase !== 'upcoming' },
-    { key: 'battery', label: p.battery ? `Battery (${batteryModel(p)})` : null, checked: runbookPhase !== 'upcoming' },
-    { key: 'racking', label: 'Racking + flashings', checked: runbookPhase !== 'upcoming' },
-    { key: 'conduit', label: 'Conduit + fittings', checked: runbookPhase !== 'upcoming' },
-    { key: 'breakers', label: 'Breakers + load center components', checked: runbookPhase !== 'upcoming' },
-    { key: 'monitoring', label: 'Monitoring gateway', checked: runbookPhase !== 'upcoming' },
-    { key: 'permit', label: 'Permit copy + job packet', checked: runbookPhase !== 'upcoming' },
-  ].filter(x => x.label);
-
-  // Synth site notes — things the surveyor would have flagged
-  const noteTemplates = [
-    'Access from driveway, park in driveway not street',
-    'Main panel in garage, accessible',
-    'Dog in yard — customer will secure before 8am',
-    'Gate code 4412',
-    'Roof: composition shingle, moderate pitch',
-    'Lockbox on side gate, code 0814',
-    'Ladder access from east side of house',
-    'Neighbor gave permission for temporary cone placement',
-    'No HOA, direct permit only',
-    'Attic access via bedroom closet, 2nd floor',
-  ];
-  const siteNotes = [];
-  const noteCount = 2 + Math.floor(Math.random() * 3);
-  const usedNotes = new Set();
-  for (let i = 0; i < noteCount; i++) {
-    const n = noteTemplates[Math.floor(Math.random() * noteTemplates.length)];
-    if (!usedNotes.has(n)) {
-      siteNotes.push(n);
-      usedNotes.add(n);
-    }
-  }
-
-  // Customer phone — synth
-  const customerPhone = '(415) ' + String(200 + Math.floor(Math.random() * 799)) + '-' + String(1000 + Math.floor(Math.random() * 8999));
-
-  RUNBOOK_STATE[p.id] = {
-    phase: runbookPhase,
-    photoUploads,
-    equipmentChecklist,
-    siteNotes,
-    customerPhone,
-    crewLead: 'Jorge Martinez',
-    crewSize: 3 + Math.floor(Math.random() * 2),
-    signoffName: null,
-    signoffAt: null,
-  };
-});
-
-function runbookState(p) {
-  return RUNBOOK_STATE[p.id] || null;
-}
-
-// Pin some Sunlight Solar jobs to today / yesterday / tomorrow so the Install Day demo has content
-(function pinRunbookDemoJobs() {
-  const sunlightJobs = PROJECTS.filter(p =>
-    p.installer === 'Sunlight Solar Co.' &&
-    INSTALLER_PROJECT_DATA[p.id] &&
-    RUNBOOK_STATE[p.id] &&
-    !INSTALLER_PROJECT_DATA[p.id].installCompletedAt
-  );
-
-  const today = new Date().toISOString().slice(0, 10);
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const dayAfter = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
-  const in3days = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-  const in5days = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
-
-  // Up to 2 "today", 1 in-progress (install date past but not completed), several upcoming
-  const schedulingJobs = sunlightJobs.filter(p => p.stage === 'scheduling' || p.stage === 'installation');
-
-  if (schedulingJobs[0]) {
-    INSTALLER_PROJECT_DATA[schedulingJobs[0].id].installConfirmedDate = today;
-    RUNBOOK_STATE[schedulingJobs[0].id].phase = 'in_progress';
-  }
-  if (schedulingJobs[1]) {
-    INSTALLER_PROJECT_DATA[schedulingJobs[1].id].installConfirmedDate = today;
-    RUNBOOK_STATE[schedulingJobs[1].id].phase = 'in_progress';
-  }
-  if (schedulingJobs[2]) {
-    INSTALLER_PROJECT_DATA[schedulingJobs[2].id].installConfirmedDate = tomorrow;
-    RUNBOOK_STATE[schedulingJobs[2].id].phase = 'upcoming';
-    // Clear during/post photos since it's upcoming
-    RUNBOOK_PHOTO_SPEC.filter(s => s.phase !== 'pre').forEach(s => {
-      RUNBOOK_STATE[schedulingJobs[2].id].photoUploads[s.category].uploaded = false;
-      RUNBOOK_STATE[schedulingJobs[2].id].photoUploads[s.category].uploadedAt = null;
-    });
-    // And clear equipment since truck not loaded yet
-    RUNBOOK_STATE[schedulingJobs[2].id].equipmentChecklist.forEach(e => e.checked = false);
-  }
-  [3, 4, 5, 6].forEach((idx, i) => {
-    if (!schedulingJobs[idx]) return;
-    const dates = [dayAfter, in3days, in3days, in5days];
-    INSTALLER_PROJECT_DATA[schedulingJobs[idx].id].installConfirmedDate = dates[i];
-    RUNBOOK_STATE[schedulingJobs[idx].id].phase = 'upcoming';
-    RUNBOOK_PHOTO_SPEC.filter(s => s.phase !== 'pre').forEach(s => {
-      RUNBOOK_STATE[schedulingJobs[idx].id].photoUploads[s.category].uploaded = false;
-      RUNBOOK_STATE[schedulingJobs[idx].id].photoUploads[s.category].uploadedAt = null;
-    });
-    RUNBOOK_STATE[schedulingJobs[idx].id].equipmentChecklist.forEach(e => e.checked = false);
-  });
-})();
+// Seeding of RUNBOOK_STATE + pinning demo dates happens after INSTALLER_PROJECT_DATA
+// is initialized — see the "RUNBOOK SEED" block further down this file.
 
 function runbookPhotoProgress(p) {
   const state = runbookState(p);
@@ -1019,6 +870,10 @@ function runbookPhotoProgress(p) {
     }
   });
   return { completed, total, required, requiredCompleted };
+}
+
+function runbookState(p) {
+  return RUNBOOK_STATE[p.id] || null;
 }
 
 
@@ -1329,6 +1184,148 @@ function getWorkOrderForProject(projectId, installer) {
 function workOrderDaysLeft(wo) {
   return Math.max(0, Math.ceil((wo.expiresAt - Date.now()) / 86400000));
 }
+
+
+// ============================================================
+// RUNBOOK SEED — runs AFTER INSTALLER_PROJECT_DATA is populated
+// ============================================================
+PROJECTS.forEach(p => {
+  const d = INSTALLER_PROJECT_DATA[p.id];
+  if (!d || !p.installer) return;
+  if (!['scheduling', 'installation', 'inspection', 'interconnection', 'rebate', 'completed'].includes(p.stage)) return;
+
+  // Determine runbook phase
+  let runbookPhase;
+  if (!d.installConfirmedDate) runbookPhase = 'upcoming';
+  else if (!d.installCompletedAt) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (d.installConfirmedDate <= today) runbookPhase = 'in_progress';
+    else runbookPhase = 'upcoming';
+  } else runbookPhase = 'complete';
+
+  // Photo upload state — fill in based on runbook phase
+  const photoUploads = {};
+  RUNBOOK_PHOTO_SPEC.forEach(spec => {
+    photoUploads[spec.category] = {
+      uploaded: false,
+      uploadedAt: null,
+      gradient: `photo-${1 + Math.floor(Math.random() * 8)}`,
+    };
+  });
+
+  if (runbookPhase === 'in_progress' || runbookPhase === 'complete') {
+    RUNBOOK_PHOTO_SPEC.filter(s => s.phase === 'pre').forEach(s => {
+      if (s.required || Math.random() < 0.8) {
+        photoUploads[s.category].uploaded = true;
+        photoUploads[s.category].uploadedAt = d.installCompletedAt ? d.installCompletedAt - 86400000 : Date.now() - 86400000;
+      }
+    });
+  }
+
+  if (runbookPhase === 'complete') {
+    RUNBOOK_PHOTO_SPEC.filter(s => s.phase === 'during' || s.phase === 'post').forEach(s => {
+      if (Math.random() < 0.92) {
+        photoUploads[s.category].uploaded = true;
+        photoUploads[s.category].uploadedAt = d.installCompletedAt;
+      }
+    });
+  }
+
+  const equipmentChecklist = [
+    { key: 'panels', label: `${panelCount(p)} solar panels on truck`, checked: runbookPhase !== 'upcoming' },
+    { key: 'inverter', label: `Inverter (${inverterModel(p)})`, checked: runbookPhase !== 'upcoming' },
+    { key: 'battery', label: p.battery ? `Battery (${batteryModel(p)})` : null, checked: runbookPhase !== 'upcoming' },
+    { key: 'racking', label: 'Racking + flashings', checked: runbookPhase !== 'upcoming' },
+    { key: 'conduit', label: 'Conduit + fittings', checked: runbookPhase !== 'upcoming' },
+    { key: 'breakers', label: 'Breakers + load center components', checked: runbookPhase !== 'upcoming' },
+    { key: 'monitoring', label: 'Monitoring gateway', checked: runbookPhase !== 'upcoming' },
+    { key: 'permit', label: 'Permit copy + job packet', checked: runbookPhase !== 'upcoming' },
+  ].filter(x => x.label);
+
+  const noteTemplates = [
+    'Access from driveway, park in driveway not street',
+    'Main panel in garage, accessible',
+    'Dog in yard — customer will secure before 8am',
+    'Gate code 4412',
+    'Roof: composition shingle, moderate pitch',
+    'Lockbox on side gate, code 0814',
+    'Ladder access from east side of house',
+    'Neighbor gave permission for temporary cone placement',
+    'No HOA, direct permit only',
+    'Attic access via bedroom closet, 2nd floor',
+  ];
+  const siteNotes = [];
+  const noteCount = 2 + Math.floor(Math.random() * 3);
+  const usedNotes = new Set();
+  for (let i = 0; i < noteCount; i++) {
+    const n = noteTemplates[Math.floor(Math.random() * noteTemplates.length)];
+    if (!usedNotes.has(n)) {
+      siteNotes.push(n);
+      usedNotes.add(n);
+    }
+  }
+
+  const customerPhone = '(415) ' + String(200 + Math.floor(Math.random() * 799)) + '-' + String(1000 + Math.floor(Math.random() * 8999));
+
+  RUNBOOK_STATE[p.id] = {
+    phase: runbookPhase,
+    photoUploads,
+    equipmentChecklist,
+    siteNotes,
+    customerPhone,
+    crewLead: 'Jorge Martinez',
+    crewSize: 3 + Math.floor(Math.random() * 2),
+    signoffName: null,
+    signoffAt: null,
+  };
+});
+
+// Pin some Sunlight Solar jobs to today / tomorrow so the Install Day demo has content
+(function pinRunbookDemoJobs() {
+  const sunlightJobs = PROJECTS.filter(p =>
+    p.installer === 'Sunlight Solar Co.' &&
+    INSTALLER_PROJECT_DATA[p.id] &&
+    RUNBOOK_STATE[p.id] &&
+    !INSTALLER_PROJECT_DATA[p.id].installCompletedAt
+  );
+
+  const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const dayAfter = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  const in3days = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const in5days = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+
+  const schedulingJobs = sunlightJobs.filter(p => p.stage === 'scheduling' || p.stage === 'installation');
+
+  if (schedulingJobs[0]) {
+    INSTALLER_PROJECT_DATA[schedulingJobs[0].id].installConfirmedDate = today;
+    RUNBOOK_STATE[schedulingJobs[0].id].phase = 'in_progress';
+  }
+  if (schedulingJobs[1]) {
+    INSTALLER_PROJECT_DATA[schedulingJobs[1].id].installConfirmedDate = today;
+    RUNBOOK_STATE[schedulingJobs[1].id].phase = 'in_progress';
+  }
+  if (schedulingJobs[2]) {
+    INSTALLER_PROJECT_DATA[schedulingJobs[2].id].installConfirmedDate = tomorrow;
+    RUNBOOK_STATE[schedulingJobs[2].id].phase = 'upcoming';
+    RUNBOOK_PHOTO_SPEC.filter(s => s.phase !== 'pre').forEach(s => {
+      RUNBOOK_STATE[schedulingJobs[2].id].photoUploads[s.category].uploaded = false;
+      RUNBOOK_STATE[schedulingJobs[2].id].photoUploads[s.category].uploadedAt = null;
+    });
+    RUNBOOK_STATE[schedulingJobs[2].id].equipmentChecklist.forEach(e => e.checked = false);
+  }
+  [3, 4, 5, 6].forEach((idx, i) => {
+    if (!schedulingJobs[idx]) return;
+    const dates = [dayAfter, in3days, in3days, in5days];
+    INSTALLER_PROJECT_DATA[schedulingJobs[idx].id].installConfirmedDate = dates[i];
+    RUNBOOK_STATE[schedulingJobs[idx].id].phase = 'upcoming';
+    RUNBOOK_PHOTO_SPEC.filter(s => s.phase !== 'pre').forEach(s => {
+      RUNBOOK_STATE[schedulingJobs[idx].id].photoUploads[s.category].uploaded = false;
+      RUNBOOK_STATE[schedulingJobs[idx].id].photoUploads[s.category].uploadedAt = null;
+    });
+    RUNBOOK_STATE[schedulingJobs[idx].id].equipmentChecklist.forEach(e => e.checked = false);
+  });
+})();
 
 
 // ============================================================
