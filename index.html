@@ -1023,6 +1023,10 @@ let pipelineFilter = 'all'; // all | ready_to_advance | at_risk
 let pipelineSearch = '';
 let pipelineStateFilter = 'all'; // all | CA | MA
 let pipelineDrilldownStage = null; // null means show full kanban; otherwise show drilldown for this stage
+let pipelineDrilldownSubBucket = null; // when set, drilldown pre-filters to this sub-bucket
+let pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
+let pipelineDrilldownOpenFilter = null; // which column filter dropdown is open
+let pipelineDrilldownSort = { col: 'risk', dir: 'desc' };
 let taskBatchMode = false;
 let assignedInstallers = {};
 let assignedCoords = {};
@@ -1192,6 +1196,9 @@ function renderNav() {
       currentView = el.dataset.view;
       pipelineFilter = 'all';
       pipelineDrilldownStage = null;
+      pipelineDrilldownSubBucket = null;
+      pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
+      pipelineDrilldownOpenFilter = null;
       pipelineSearch = '';
       renderNav();
       render();
@@ -1462,21 +1469,97 @@ function renderPipeline() {
   const byStage = {};
   STAGE_ORDER.forEach(s => byStage[s] = activeAll.filter(p => p.stage === s));
 
-  // Counts that don't depend on current filter (for filter-chip counts they should reflect available pool)
   const stateFilteredAll = visibleProjects().filter(p => p.stage !== 'completed' && (pipelineStateFilter === 'all' || p.state === pipelineStateFilter));
   const totalCount = stateFilteredAll.length;
   const readyCount = stateFilteredAll.filter(p => isReadyToAdvance(p)).length;
   const atRiskCount = stateFilteredAll.filter(p => p.riskLevel === 'high').length;
   const completedCount = visibleProjects().filter(p => p.stage === 'completed' && (pipelineStateFilter === 'all' || p.state === pipelineStateFilter)).length;
+  const grandTotal = totalCount + completedCount;
 
   const coordLabel = currentCoord === '__all__' ? 'All coordinators' : currentCoord;
 
+  // KPI tiles at top: active / at risk / ready to advance / grand total
+  const kpiTile = (label, value, tone, sub) => `
+    <div class="card px-5 py-4" style="${tone === 'ok' ? 'border-left:3px solid #2F7A3E;' : tone === 'warn' ? 'border-left:3px solid #E0A83A;' : tone === 'danger' ? 'border-left:3px solid #C44545;' : 'border-left:3px solid #013300;'}">
+      <div class="text-[11px] uppercase tracking-wider text-haven-muted">${label}</div>
+      <div class="font-serif font-bold text-3xl mt-1 ${tone === 'danger' ? 'text-haven-danger' : tone === 'ok' ? 'text-haven-ok' : tone === 'warn' ? 'text-haven-warn' : 'text-haven-forest'}">${value}</div>
+      ${sub ? `<div class="text-xs text-haven-muted mt-1">${sub}</div>` : ''}
+    </div>`;
+
+  // Build stage summary cards
+  const stageCard = (stage) => {
+    const projects = byStage[stage];
+    const count = projects.length;
+    const buckets = SUB_BUCKETS[stage] || [];
+
+    // Bucketize
+    const byBucket = {};
+    buckets.forEach(b => byBucket[b.key] = 0);
+    projects.forEach(p => {
+      const k = subBucketForProject(p);
+      if (k && byBucket[k] !== undefined) byBucket[k]++;
+    });
+
+    const atRiskInStage = projects.filter(p => p.riskLevel === 'high').length;
+    const readyInStage = projects.filter(p => isReadyToAdvance(p)).length;
+
+    const toneColor = {
+      ok: '#2F7A3E', warn: '#E0A83A', danger: '#C44545',
+      info: '#3A6EA8', neutral: '#6B7568',
+    };
+
+    return `
+      <div class="card p-0 overflow-hidden">
+        <div class="px-4 py-3 border-b border-haven-border cursor-pointer hover:bg-haven-bg flex items-center justify-between" onclick="drilldownStage('${stage}')" title="Click to see all projects in ${STAGE_LABELS[stage]}">
+          <div>
+            <div class="font-serif font-bold text-haven-forest flex items-center gap-1.5">
+              ${STAGE_LABELS[stage]}
+              <svg class="w-3.5 h-3.5 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            </div>
+            <div class="text-xs text-haven-muted mt-0.5">
+              ${count} project${count === 1 ? '' : 's'}
+              ${atRiskInStage > 0 ? ` · <span class="text-haven-danger font-medium">${atRiskInStage} at risk</span>` : ''}
+              ${readyInStage > 0 ? ` · <span class="text-haven-ok font-medium">${readyInStage} ready</span>` : ''}
+            </div>
+          </div>
+          <div class="font-serif font-bold text-2xl text-haven-forest">${count}</div>
+        </div>
+
+        ${count === 0 ? `
+          <div class="px-4 py-5 text-center text-xs text-haven-muted italic">No projects in this stage</div>
+        ` : `
+          <table class="w-full text-sm">
+            <tbody>
+              ${buckets.map(b => {
+                const n = byBucket[b.key];
+                const pct = count ? Math.round((n / count) * 100) : 0;
+                const color = toneColor[b.tone] || '#6B7568';
+                const dim = n === 0;
+                return `
+                  <tr class="border-b border-haven-border last:border-b-0 ${dim ? 'opacity-50' : 'cursor-pointer hover:bg-haven-bg'}" ${dim ? '' : `onclick="drilldownSubBucket('${stage}', '${b.key}')"`}>
+                    <td class="px-4 py-2 w-1"><div class="w-2 h-2 rounded-full" style="background:${color}"></div></td>
+                    <td class="px-2 py-2 text-haven-ink">${b.label}</td>
+                    <td class="px-2 py-2 text-right font-semibold tabular-nums" style="color:${dim ? '#C4C4C0' : color}">${n}</td>
+                    <td class="px-2 py-2 w-24">
+                      <div class="h-1.5 rounded-full" style="background:#E4E6E0;">
+                        <div class="h-full rounded-full" style="width:${pct}%; background:${color};"></div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-2 text-right text-xs text-haven-muted tabular-nums w-12">${pct}%</td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        `}
+      </div>`;
+  };
+
   main.innerHTML = `
-    <div class="p-6">
+    <div class="p-6 max-w-[1600px]">
       <div class="flex items-start justify-between mb-4 gap-4 flex-wrap">
         <div>
           <h1 class="font-serif text-2xl font-bold text-haven-forest">Install Pipeline</h1>
-          <p class="text-sm text-haven-muted mt-1">${coordLabel} · <span class="text-haven-muted">Click a stage to drill in, or drag cards to move projects</span></p>
+          <p class="text-sm text-haven-muted mt-1">${coordLabel} · Click any stage or sub-bucket to see the underlying projects</p>
         </div>
         <div class="flex items-center gap-3">
           ${renderPipelineSearch()}
@@ -1492,35 +1575,18 @@ function renderPipeline() {
         ${pipelineSearch ? `<span class="text-xs text-haven-muted ml-2">${activeAll.length} match${activeAll.length === 1 ? '' : 'es'} for "${pipelineSearch}"</span>` : ''}
       </div>
 
-      <div class="overflow-x-auto pb-4">
-        <div class="grid gap-3 min-w-[1400px]" style="grid-template-columns: repeat(8, minmax(0, 1fr));">
-          ${STAGE_ORDER.map(stage => `
-            <div class="flex flex-col min-h-[60vh]">
-              <div class="flex items-center justify-between px-2 pb-2 border-b-2 border-haven-forest mb-2 cursor-pointer hover:bg-haven-bg rounded-t-sm transition-colors" onclick="drilldownStage('${stage}')" title="Click to drill in">
-                <div class="font-serif font-bold text-sm text-haven-forest flex items-center gap-1.5">
-                  ${STAGE_LABELS[stage]}
-                  <svg class="w-3 h-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                </div>
-                <div class="text-xs text-haven-muted">${byStage[stage].length}</div>
-              </div>
-              <div class="space-y-2 flex-1 drop-zone rounded-md transition-colors" data-stage="${stage}">
-                ${(() => {
-                  if (byStage[stage].length === 0) return '<div class="text-xs text-haven-muted text-center py-6 border border-dashed border-haven-border rounded-md">None</div>';
-                  const sorted = byStage[stage].slice().sort((a,b)=>b.risk - a.risk);
-                  const CAP = 15;
-                  const shown = sorted.slice(0, CAP);
-                  const extra = sorted.length - shown.length;
-                  return shown.map(p => pipelineCard(p)).join('') +
-                    (extra > 0 ? `<button class="w-full text-xs text-haven-forest hover:bg-haven-bg border border-dashed border-haven-border rounded-md py-3 font-medium" onclick="drilldownStage('${stage}')">+${extra} more →</button>` : '');
-                })()}
-              </div>
-            </div>`).join('')}
-        </div>
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        ${kpiTile('Active', totalCount, 'forest', 'in pre-install pipeline')}
+        ${kpiTile('At Risk', atRiskCount, atRiskCount > 0 ? 'danger' : 'ok', atRiskCount > 0 ? 'need attention' : 'none flagged')}
+        ${kpiTile('Ready to Advance', readyCount, readyCount > 0 ? 'ok' : 'neutral', readyCount > 0 ? 'move these forward' : 'none ready')}
+        ${kpiTile('Completed', completedCount, 'ok', 'lifetime')}
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        ${STAGE_ORDER.map(s => stageCard(s)).join('')}
       </div>
     </div>
   `;
-  attachProjectHandlers();
-  attachDragHandlers();
   attachPipelineSearchHandler();
 }
 
@@ -1561,27 +1627,127 @@ function attachPipelineSearchHandler() {
 
 window.setPipelineState = (key) => { pipelineStateFilter = key; render(); };
 window.clearPipelineSearch = () => { pipelineSearch = ''; render(); };
-window.drilldownStage = (stage) => { pipelineDrilldownStage = stage; render(); };
-window.exitDrilldown = () => { pipelineDrilldownStage = null; render(); };
+window.drilldownStage = (stage) => {
+  pipelineDrilldownStage = stage;
+  pipelineDrilldownSubBucket = null;
+  pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
+  pipelineDrilldownOpenFilter = null;
+  render();
+};
+window.drilldownSubBucket = (stage, subKey) => {
+  pipelineDrilldownStage = stage;
+  pipelineDrilldownSubBucket = subKey;
+  pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: subKey };
+  pipelineDrilldownOpenFilter = null;
+  render();
+};
+window.exitDrilldown = () => {
+  pipelineDrilldownStage = null;
+  pipelineDrilldownSubBucket = null;
+  pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
+  pipelineDrilldownOpenFilter = null;
+  render();
+};
+window.togglePDSort = (col) => {
+  if (pipelineDrilldownSort.col === col) pipelineDrilldownSort.dir = pipelineDrilldownSort.dir === 'asc' ? 'desc' : 'asc';
+  else pipelineDrilldownSort = { col, dir: 'desc' };
+  render();
+};
+window.togglePDFilterMenu = (col) => {
+  pipelineDrilldownOpenFilter = pipelineDrilldownOpenFilter === col ? null : col;
+  render();
+};
+window.setPDFilter = (col, value) => {
+  pipelineDrilldownFilters[col] = value;
+  if (col === 'sub_bucket') pipelineDrilldownSubBucket = value;
+  pipelineDrilldownOpenFilter = null;
+  render();
+};
+window.clearAllPDFilters = () => {
+  pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
+  pipelineDrilldownSubBucket = null;
+  render();
+};
 
 function renderPipelineDrilldown() {
   const stage = pipelineDrilldownStage;
   const buckets = SUB_BUCKETS[stage] || [];
-  // Apply the same pipeline filter pipeline
-  const all = pipelineFilteredProjects().filter(p => p.stage === stage);
+  const f = pipelineDrilldownFilters;
 
-  // Group by sub-bucket
-  const byBucket = {};
-  buckets.forEach(b => byBucket[b.key] = []);
-  all.forEach(p => {
-    const k = subBucketForProject(p);
-    if (k && byBucket[k] !== undefined) byBucket[k].push(p);
+  // Start from all projects in this stage that pass visibleProjects + state + search filters
+  let all = pipelineFilteredProjects().filter(p => p.stage === stage);
+
+  // Apply drilldown column filters
+  if (f.utility) all = all.filter(p => p.utility === f.utility);
+  if (f.installer) all = all.filter(p => (p.installer || '—') === f.installer);
+  if (f.coord) all = all.filter(p => p.coord === f.coord);
+  if (f.sub_bucket) all = all.filter(p => subBucketForProject(p) === f.sub_bucket);
+
+  // Facet values for filter dropdowns — use stage-scoped pool before column filters so user can see all options
+  const facetPool = pipelineFilteredProjects().filter(p => p.stage === stage);
+  const utilities = [...new Set(facetPool.map(p => p.utility))].sort();
+  const installers = [...new Set(facetPool.map(p => p.installer || '—'))].sort();
+  const coords = [...new Set(facetPool.map(p => p.coord))].sort();
+
+  // Sort
+  const accessors = {
+    risk: p => p.risk,
+    customer: p => p.name.toLowerCase(),
+    utility: p => p.utility,
+    sub_bucket: p => subBucketForProject(p) || 'zzz',
+    install_date: p => (INSTALLER_PROJECT_DATA[p.id]?.installConfirmedDate) || '9999',
+    days_in_stage: p => p.daysInStage,
+    installer: p => p.installer || 'zzz',
+  };
+  const acc = accessors[pipelineDrilldownSort.col] || accessors.risk;
+  const dir = pipelineDrilldownSort.dir === 'asc' ? 1 : -1;
+  const sorted = all.slice().sort((a, b) => {
+    const av = acc(a), bv = acc(b);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
   });
 
-  const stateFilteredAll = visibleProjects().filter(p => p.stage === stage && (pipelineStateFilter === 'all' || p.state === pipelineStateFilter));
+  const CAP = 200;
+  const shown = sorted.slice(0, CAP);
+  const extra = sorted.length - shown.length;
+
+  const stateLabel = pipelineStateFilter === 'all' ? '' : ` · ${pipelineStateFilter} only`;
+  const activeFilterCount = Object.values(f).filter(v => v !== null).length;
+
+  // Helper to render a column header with optional sort and filter
+  function th(key, label, opts = {}) {
+    const { sortable = true, filterCol = null, filterOptions = null, width = '' } = opts;
+    const isSorted = pipelineDrilldownSort.col === key;
+    const sortIcon = isSorted ? (pipelineDrilldownSort.dir === 'asc' ? '↑' : '↓') : '<span style="color:#C4C4C0">↕</span>';
+    const filterValue = filterCol ? f[filterCol] : null;
+    const hasFilter = filterValue !== null && filterValue !== undefined;
+
+    return `
+      <th class="px-3 py-2.5 text-left relative select-none" ${width ? `style="width:${width};"` : ''}>
+        <div class="flex items-center gap-1">
+          ${sortable ? `<button class="uppercase tracking-wide text-xs text-haven-muted hover:text-haven-forest flex items-center gap-1" onclick="togglePDSort('${key}')">${label} ${sortIcon}</button>` : `<span class="uppercase tracking-wide text-xs text-haven-muted">${label}</span>`}
+          ${filterOptions ? `
+            <button class="text-haven-muted hover:text-haven-forest px-1" onclick="togglePDFilterMenu('${filterCol}')">
+              <svg class="w-3 h-3 inline" fill="${hasFilter ? '#013300' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+              ${hasFilter ? `<span class="inline-block w-1.5 h-1.5 rounded-full bg-haven-forest ml-1"></span>` : ''}
+            </button>
+            ${pipelineDrilldownOpenFilter === filterCol ? `
+              <div class="absolute z-20 mt-1 bg-white border border-haven-border rounded-md shadow-lg py-1 text-sm text-left" style="top:100%; left:0; min-width:200px; max-height:300px; overflow-y:auto;">
+                <button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${filterValue === null ? 'font-semibold text-haven-forest' : ''}" onclick="setPDFilter('${filterCol}', null)">All</button>
+                ${filterOptions.map(opt => `<button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${filterValue === opt.value ? 'font-semibold text-haven-forest' : ''}" onclick="setPDFilter('${filterCol}', '${opt.value.replace(/'/g, "\\'")}')">${opt.label}</button>`).join('')}
+              </div>
+            ` : ''}
+          ` : ''}
+        </div>
+      </th>`;
+  }
+
+  // Sub-bucket options for the drilldown header filter
+  const subBucketOptions = buckets.map(b => ({ label: b.label, value: b.key }));
 
   main.innerHTML = `
-    <div class="p-6 max-w-[1400px]">
+    <div class="p-6 max-w-[1500px]">
       <div class="flex items-start justify-between mb-4 gap-4 flex-wrap">
         <div>
           <button class="text-sm text-haven-muted hover:text-haven-forest flex items-center gap-1 mb-2" onclick="exitDrilldown()">
@@ -1589,7 +1755,10 @@ function renderPipelineDrilldown() {
             Back to pipeline
           </button>
           <h1 class="font-serif text-2xl font-bold text-haven-forest">${STAGE_LABELS[stage]}</h1>
-          <p class="text-sm text-haven-muted mt-1">${stateFilteredAll.length} project${stateFilteredAll.length === 1 ? '' : 's'} in ${STAGE_LABELS[stage]}${pipelineStateFilter !== 'all' ? ` · ${pipelineStateFilter} only` : ''}</p>
+          <p class="text-sm text-haven-muted mt-1">
+            ${sorted.length} project${sorted.length === 1 ? '' : 's'}${stateLabel}
+            ${activeFilterCount > 0 ? ` · <button class="text-haven-forest hover:underline" onclick="clearAllPDFilters()">Clear ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}</button>` : ''}
+          </p>
         </div>
         <div class="flex items-center gap-3">
           ${renderPipelineSearch()}
@@ -1597,72 +1766,86 @@ function renderPipelineDrilldown() {
         </div>
       </div>
 
-      ${pipelineSearch ? `<div class="text-xs text-haven-muted mb-3">${all.length} match${all.length === 1 ? '' : 'es'} for "${pipelineSearch}"</div>` : ''}
-
-      <div class="space-y-5">
+      <!-- Sub-bucket chip row for quick jumping -->
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        <button class="filter-chip ${!f.sub_bucket ? 'active' : ''}" onclick="setPDFilter('sub_bucket', null)">All <span class="opacity-70 ml-1">${pipelineFilteredProjects().filter(p => p.stage === stage).length}</span></button>
         ${buckets.map(b => {
-          const rows = byBucket[b.key] || [];
-          const badgeClass = `badge-${b.tone}`;
-          return `
-            <div class="card p-0 overflow-hidden">
-              <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between bg-haven-bg">
-                <div class="flex items-center gap-3">
-                  <span class="badge ${badgeClass}">${b.label}</span>
-                  <span class="text-sm text-haven-muted">${rows.length} project${rows.length === 1 ? '' : 's'}</span>
-                </div>
-              </div>
-              ${rows.length === 0 ? `
-                <div class="px-4 py-6 text-center text-sm text-haven-muted italic">No projects in this sub-bucket</div>
-              ` : `
-                <table class="w-full text-sm">
-                  <thead class="border-b border-haven-border bg-haven-bg">
-                    <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
-                      <th class="px-4 py-2"></th>
-                      <th class="px-4 py-2">Project</th>
-                      <th class="px-4 py-2">Location</th>
-                      <th class="px-4 py-2">System</th>
-                      <th class="px-4 py-2">Coord</th>
-                      <th class="px-4 py-2">Days in stage</th>
-                      <th class="px-4 py-2">Next action</th>
-                      <th class="px-4 py-2">Waiting on</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${(() => {
-                      const CAP = 50;
-                      const sorted = rows.slice().sort((a, b) => b.risk - a.risk);
-                      const shown = sorted.slice(0, CAP);
-                      const extra = sorted.length - shown.length;
-                      return shown.map(p => {
-                        const coord = getCoord(p);
-                        const overdue = p.slaStatus === 'breached';
-                        const inst = getInstaller(p);
-                        return `
-                          <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
-                            <td class="px-4 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
-                            <td class="px-4 py-2.5">
-                              <div class="font-medium text-haven-forest">${p.name}</div>
-                              <div class="text-[11px] text-haven-muted">${p.projectNumber}</div>
-                            </td>
-                            <td class="px-4 py-2.5 text-haven-muted">${p.city}, ${p.state}</td>
-                            <td class="px-4 py-2.5 text-xs text-haven-muted">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</td>
-                            <td class="px-4 py-2.5">${avatar(coord, 18)} <span class="text-xs ml-1 align-middle">${coord.split(' ')[0]}</span></td>
-                            <td class="px-4 py-2.5 ${overdue ? 'text-haven-danger font-medium' : ''}">${p.daysInStage}d${overdue ? ` (${p.daysOverdue}d over)` : ''}</td>
-                            <td class="px-4 py-2.5 text-xs ${p.nextAction ? '' : 'italic text-haven-danger'}">${p.nextAction ? `<span class="truncate block max-w-[220px]" title="${p.nextAction}">${p.nextAction}</span>` : '— not set —'}</td>
-                            <td class="px-4 py-2.5"><span class="badge badge-neutral">${WAITING_ON_LABELS[p.waitingOn] || '—'}</span></td>
-                          </tr>`;
-                      }).join('') + (extra > 0 ? `<tr><td colspan="8" class="px-4 py-2 text-center text-xs text-haven-muted bg-haven-bg">Showing top ${CAP} of ${sorted.length} in this sub-bucket · highest risk first</td></tr>` : '');
-                    })()}
-                  </tbody>
-                </table>
-              `}
-            </div>`;
+          const bucketCount = pipelineFilteredProjects().filter(p => p.stage === stage && subBucketForProject(p) === b.key).length;
+          const isActive = f.sub_bucket === b.key;
+          const toneColor = { ok: '#2F7A3E', warn: '#E0A83A', danger: '#C44545', info: '#3A6EA8', neutral: '#6B7568' }[b.tone] || '#6B7568';
+          return `<button class="filter-chip ${isActive ? 'active' : ''}" onclick="setPDFilter('sub_bucket', '${b.key}')" style="${!isActive ? `border-color:${toneColor};color:${toneColor};` : ''}">${b.label} <span class="opacity-70 ml-1">${bucketCount}</span></button>`;
         }).join('')}
+      </div>
+
+      <div class="card p-0 overflow-visible">
+        <table class="w-full text-sm">
+          <thead class="bg-haven-bg border-b border-haven-border">
+            <tr>
+              ${th('risk', 'Risk', { width: '50px' })}
+              ${th('customer', 'Customer')}
+              ${th('utility', 'Utility', { filterCol: 'utility', filterOptions: utilities.map(u => ({ label: u, value: u })) })}
+              ${th('sub_bucket', 'Status', { filterCol: 'sub_bucket', filterOptions: subBucketOptions })}
+              ${th('install_date', 'Install Date')}
+              ${th('days_in_stage', 'Days in Stage')}
+              ${th('installer', 'Installer', { filterCol: 'installer', filterOptions: installers.map(i => ({ label: i === '—' ? 'Not assigned' : i, value: i })) })}
+              <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">Coord <button class="ml-1 text-haven-muted hover:text-haven-forest px-1" onclick="togglePDFilterMenu('coord')"><svg class="w-3 h-3 inline" fill="${f.coord ? '#013300' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg></button></span>
+                ${pipelineDrilldownOpenFilter === 'coord' ? `
+                  <div class="absolute z-20 mt-1 bg-white border border-haven-border rounded-md shadow-lg py-1 text-sm text-left" style="top:100%; left:0; min-width:200px;">
+                    <button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${f.coord === null ? 'font-semibold text-haven-forest' : ''}" onclick="setPDFilter('coord', null)">All</button>
+                    ${coords.map(c => `<button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${f.coord === c ? 'font-semibold text-haven-forest' : ''}" onclick="setPDFilter('coord', '${c.replace(/'/g, "\\'")}')">${c.split(' ')[0]}</button>`).join('')}
+                  </div>
+                ` : ''}
+              </th>
+              <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">Next action</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.length === 0 ? `<tr><td colspan="9" class="px-4 py-8 text-center text-haven-muted">No projects match</td></tr>` : shown.map(p => {
+              const coord = getCoord(p);
+              const overdue = p.slaStatus === 'breached';
+              const inst = getInstaller(p);
+              const subKey = subBucketForProject(p);
+              const subBucket = buckets.find(b => b.key === subKey);
+              const subLabel = subBucket ? subBucket.label : '—';
+              const subToneColor = subBucket ? ({ ok: '#2F7A3E', warn: '#E0A83A', danger: '#C44545', info: '#3A6EA8', neutral: '#6B7568' }[subBucket.tone] || '#6B7568') : '#6B7568';
+              const installDate = INSTALLER_PROJECT_DATA[p.id]?.installConfirmedDate || '—';
+              return `
+                <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
+                  <td class="px-3 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
+                  <td class="px-3 py-2.5">
+                    <div class="font-medium text-haven-forest">${p.name}</div>
+                    <div class="text-[11px] text-haven-muted">${p.projectNumber} · ${p.city}, ${p.state}</div>
+                  </td>
+                  <td class="px-3 py-2.5"><span class="badge badge-info">${p.utility}</span></td>
+                  <td class="px-3 py-2.5"><div class="flex items-center gap-1.5"><div class="w-2 h-2 rounded-full" style="background:${subToneColor}"></div><span class="text-xs">${subLabel}</span></div></td>
+                  <td class="px-3 py-2.5 text-xs text-haven-muted tabular-nums">${installDate}</td>
+                  <td class="px-3 py-2.5 ${overdue ? 'text-haven-danger font-medium' : ''} tabular-nums">${p.daysInStage}d${overdue ? ` (${p.daysOverdue}d over)` : ''}</td>
+                  <td class="px-3 py-2.5 text-xs ${inst ? '' : 'italic text-haven-muted'}">${inst ? inst.split(' ')[0] : '—'}</td>
+                  <td class="px-3 py-2.5">${avatar(coord, 18)} <span class="text-xs ml-1 align-middle">${coord.split(' ')[0]}</span></td>
+                  <td class="px-3 py-2.5 text-xs ${p.nextAction ? '' : 'italic text-haven-danger'}">${p.nextAction ? `<span class="truncate block max-w-[220px]" title="${p.nextAction}">${p.nextAction}</span>` : '— not set —'}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        ${extra > 0 ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${sorted.length} — ${pipelineDrilldownSort.dir === 'desc' ? 'highest' : 'lowest'} ${pipelineDrilldownSort.col.replace(/_/g, ' ')} first</div>` : ''}
       </div>
     </div>
   `;
+
   attachProjectHandlers();
   attachPipelineSearchHandler();
+
+  // Close filter dropdown on outside click
+  setTimeout(() => {
+    const handler = (e) => {
+      if (pipelineDrilldownOpenFilter && !e.target.closest('button')) {
+        pipelineDrilldownOpenFilter = null;
+        document.removeEventListener('click', handler);
+        render();
+      }
+    };
+    if (pipelineDrilldownOpenFilter) document.addEventListener('click', handler);
+  }, 0);
 }
 
 window.setPipelineFilter = (f) => { pipelineFilter = f; render(); };
