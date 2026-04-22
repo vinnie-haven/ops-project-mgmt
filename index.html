@@ -477,7 +477,314 @@ PROJECTS.forEach(proj => {
 
 
 // ============================================================
-// EMAILS
+// WORK ORDERS, PAYMENTS, INSTALLER PROJECT DATA, NOTES
+// ============================================================
+// A work order is Haven dispatching a project to an installer. Installer has 3 days to
+// accept. If they decline or it expires, it rolls to the next installer in fallbackQueue.
+// Once accepted, the project is "claimed" by that installer.
+
+const WORK_ORDER_WINDOW_DAYS = 3;
+
+// Haven's installer payout schedule (as of current pricing):
+// - 1 battery install: $2,500 flat
+// - 2 battery install: $3,000 flat
+// - 0 battery or 3+ batteries: custom quote (returns null, triggers "Custom quote needed" flag)
+// Payment: 50% on install completion, 50% on inspection pass.
+// On top of base, the installer can submit adders (e.g. long trenching run, additional subpanel).
+// Each adder is reviewed by Haven internal and approved or rejected before paid.
+// Approved adders are paid with the inspection (final) payment.
+
+function batteryCount(p) {
+  // Standard Enphase IQ Battery 5P is ~5 kWh, Tesla Powerwall ~13.5, larger systems = multi-battery.
+  // Use 13.5 kWh as the "1 battery" threshold for demo.
+  if (!p.battery) return 0;
+  if (p.battery <= 13.5) return 1;
+  if (p.battery <= 20.5) return 2;
+  return Math.ceil(p.battery / 13.5); // rough for 3+
+}
+
+function installerPayoutFor(p) {
+  const bc = batteryCount(p);
+  if (bc === 1) return 2500;
+  if (bc === 2) return 3000;
+  return null; // needs custom quote
+}
+
+function installerPayoutDisplay(p) {
+  const v = installerPayoutFor(p);
+  return v === null ? 'Custom quote' : dollarFmt(v);
+}
+
+// When we need a numeric amount for payment tracking (custom quotes default to 2500 in demo)
+function installerPayoutAmount(p) {
+  const v = installerPayoutFor(p);
+  return v === null ? 2500 : v;
+}
+
+// Small helper mirroring the later dollar() but available during seeding
+function dollarFmt(n) { return '$' + Math.round(n).toLocaleString(); }
+
+const WORK_ORDERS = []; // array of work order objects
+const INSTALLER_PROJECT_DATA = {}; // projectId -> { installConfirmedDate, installCompletedAt, inspectionConfirmedDate, inspectionResult, inspectionResultAt }
+const PAYMENTS = {}; // projectId -> { amount, installPaid, installPaidAt, inspectionPaid, inspectionPaidAt }
+const ADDERS = {}; // projectId -> [{ id, amount, description, submittedBy, submittedAt, status: 'pending'|'approved'|'rejected', reviewedBy, reviewedAt, reviewNote }]
+const NOTES = {}; // projectId -> [{ id, author, role, body, createdAt }]
+
+let adderSeq = 1;
+function addAdder(projectId, amount, description, submittedBy) {
+  if (!ADDERS[projectId]) ADDERS[projectId] = [];
+  const a = {
+    id: `ad${adderSeq++}`,
+    projectId,
+    amount: Math.round(Number(amount) || 0),
+    description: description || '',
+    submittedBy: submittedBy || 'Installer',
+    submittedAt: Date.now(),
+    status: 'pending',
+    reviewedBy: null,
+    reviewedAt: null,
+    reviewNote: null,
+  };
+  ADDERS[projectId].push(a);
+  return a;
+}
+
+function reviewAdder(adderId, decision, reviewNote) {
+  for (const pid in ADDERS) {
+    const a = ADDERS[pid].find(x => x.id === adderId);
+    if (a) {
+      a.status = decision; // 'approved' | 'rejected'
+      a.reviewedBy = currentActor();
+      a.reviewedAt = Date.now();
+      a.reviewNote = reviewNote || null;
+      return a;
+    }
+  }
+  return null;
+}
+
+function approvedAddersTotal(projectId) {
+  return (ADDERS[projectId] || [])
+    .filter(a => a.status === 'approved')
+    .reduce((sum, a) => sum + a.amount, 0);
+}
+
+function pendingAddersTotal(projectId) {
+  return (ADDERS[projectId] || [])
+    .filter(a => a.status === 'pending')
+    .reduce((sum, a) => sum + a.amount, 0);
+}
+
+function pendingAddersCountAll() {
+  let n = 0;
+  for (const pid in ADDERS) n += ADDERS[pid].filter(a => a.status === 'pending').length;
+  return n;
+}
+
+let woSeq = 1;
+function makeWorkOrder(projectId, dispatchedTo, fallbackQueue, dispatchedDaysAgo, status, signedBy, acceptedDaysAgo, declinedReason) {
+  const dispatchedAt = Date.now() - dispatchedDaysAgo * 86400000;
+  const expiresAt = dispatchedAt + WORK_ORDER_WINDOW_DAYS * 86400000;
+  return {
+    id: `wo${woSeq++}`,
+    projectId,
+    dispatchedTo,
+    fallbackQueue: fallbackQueue || [],
+    dispatchedAt,
+    expiresAt,
+    status,
+    signedBy: signedBy || null,
+    acceptedAt: acceptedDaysAgo !== undefined ? Date.now() - acceptedDaysAgo * 86400000 : null,
+    declinedReason: declinedReason || null,
+  };
+}
+
+// Seed work orders & installer data so the Sunlight Solar portal has something in each state.
+// Strategy: for projects currently assigned to Sunlight, create accepted work orders.
+// Create 2 fresh pending work orders (one to Sunlight) for the demo.
+// Create one declined+reassigned chain to show fallback in action.
+
+PROJECTS.forEach(p => {
+  if (p.stage === 'completed') {
+    // Completed: work order accepted long ago, install + inspection done, both payments made
+    if (p.installer) {
+      WORK_ORDERS.push(makeWorkOrder(p.id, p.installer, [], 80, 'accepted', 'Jorge Martinez (Crew Lead)', 79));
+      INSTALLER_PROJECT_DATA[p.id] = {
+        installConfirmedDate: new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10),
+        installCompletedAt: Date.now() - 55 * 86400000,
+        inspectionConfirmedDate: new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10),
+        inspectionResult: 'passed',
+        inspectionResultAt: Date.now() - 43 * 86400000,
+      };
+      const amt = installerPayoutAmount(p);
+      PAYMENTS[p.id] = {
+        amount: amt,
+        installPaid: true, installPaidAt: Date.now() - 53 * 86400000,
+        inspectionPaid: true, inspectionPaidAt: Date.now() - 40 * 86400000,
+      };
+    }
+  } else if (['scheduling', 'installation', 'inspection', 'interconnection', 'rebate'].includes(p.stage) && p.installer) {
+    // Active job: accepted work order. Build installer data appropriate to stage.
+    WORK_ORDERS.push(makeWorkOrder(p.id, p.installer, [], 20 + Math.floor(Math.random() * 30), 'accepted', 'Jorge Martinez (Crew Lead)', 19 + Math.floor(Math.random() * 28)));
+    const data = {};
+    const pay = { amount: installerPayoutAmount(p), installPaid: false, inspectionPaid: false };
+
+    if (p.stage === 'scheduling') {
+      // Installer may or may not have confirmed install date yet
+      if (Math.random() < 0.5) {
+        data.installConfirmedDate = new Date(Date.now() + (3 + Math.floor(Math.random() * 10)) * 86400000).toISOString().slice(0, 10);
+      }
+    } else if (p.stage === 'installation') {
+      // Install in progress — date confirmed, maybe completed
+      data.installConfirmedDate = new Date(Date.now() + Math.floor(Math.random() * 3) * 86400000).toISOString().slice(0, 10);
+      if (p.daysInStage >= 1 && Math.random() < 0.6) {
+        data.installCompletedAt = Date.now() - (p.daysInStage - 1) * 86400000;
+        pay.installPaid = Math.random() < 0.4;
+        if (pay.installPaid) pay.installPaidAt = data.installCompletedAt + 7 * 86400000;
+      }
+    } else if (p.stage === 'inspection') {
+      data.installConfirmedDate = new Date(Date.now() - (p.daysInStage + 5) * 86400000).toISOString().slice(0, 10);
+      data.installCompletedAt = Date.now() - (p.daysInStage + 4) * 86400000;
+      pay.installPaid = true;
+      pay.installPaidAt = Date.now() - (p.daysInStage - 3) * 86400000;
+      if (Math.random() < 0.6) {
+        data.inspectionConfirmedDate = new Date(Date.now() + Math.floor(Math.random() * 5) * 86400000).toISOString().slice(0, 10);
+      }
+    } else if (p.stage === 'interconnection' || p.stage === 'rebate') {
+      data.installConfirmedDate = new Date(Date.now() - (p.daysInStage + 25) * 86400000).toISOString().slice(0, 10);
+      data.installCompletedAt = Date.now() - (p.daysInStage + 24) * 86400000;
+      data.inspectionConfirmedDate = new Date(Date.now() - (p.daysInStage + 12) * 86400000).toISOString().slice(0, 10);
+      data.inspectionResult = 'passed';
+      data.inspectionResultAt = Date.now() - (p.daysInStage + 10) * 86400000;
+      pay.installPaid = true; pay.installPaidAt = Date.now() - (p.daysInStage + 20) * 86400000;
+      pay.inspectionPaid = Math.random() < 0.7;
+      if (pay.inspectionPaid) pay.inspectionPaidAt = Date.now() - (p.daysInStage + 5) * 86400000;
+    }
+
+    INSTALLER_PROJECT_DATA[p.id] = data;
+    PAYMENTS[p.id] = pay;
+  }
+});
+
+// Pending fresh work order: dispatched to Sunlight 1 day ago, expires in 2 days
+const pendingTarget1 = PROJECTS.find(p => p.stage === 'design' && !WORK_ORDERS.some(w => w.projectId === p.id));
+if (pendingTarget1) {
+  WORK_ORDERS.push(makeWorkOrder(
+    pendingTarget1.id,
+    'Sunlight Solar Co.',
+    ['Bay Area Solar Installers', 'Pacific Coast Solar'],
+    1, 'pending'
+  ));
+  PAYMENTS[pendingTarget1.id] = { amount: installerPayoutAmount(pendingTarget1), installPaid: false, inspectionPaid: false };
+}
+
+// Second pending work order: dispatched 2 days ago (1 day left) — urgency
+const pendingTarget2 = PROJECTS.filter(p => p.stage === 'permitting' && !WORK_ORDERS.some(w => w.projectId === p.id))[0];
+if (pendingTarget2) {
+  WORK_ORDERS.push(makeWorkOrder(
+    pendingTarget2.id,
+    'Sunlight Solar Co.',
+    ['Golden State Electric', 'NorCal Renewable'],
+    2, 'pending'
+  ));
+  PAYMENTS[pendingTarget2.id] = { amount: installerPayoutAmount(pendingTarget2), installPaid: false, inspectionPaid: false };
+}
+
+// Declined + reassigned work order (shows fallback chain). Original went to Bay Area, declined, now with Sunlight.
+const declinedTarget = PROJECTS.filter(p => p.stage === 'scheduling' && !WORK_ORDERS.some(w => w.projectId === p.id))[0];
+if (declinedTarget) {
+  WORK_ORDERS.push(makeWorkOrder(
+    declinedTarget.id, 'Bay Area Solar Installers', ['Sunlight Solar Co.'], 5, 'declined', null, undefined, 'No crew availability this month'
+  ));
+  WORK_ORDERS.push(makeWorkOrder(
+    declinedTarget.id, 'Sunlight Solar Co.', [], 2, 'pending'
+  ));
+  PAYMENTS[declinedTarget.id] = { amount: installerPayoutAmount(declinedTarget), installPaid: false, inspectionPaid: false };
+}
+
+// Seed some demo adders so every state is populated (pending / approved / rejected)
+(function seedAdders() {
+  const sunlightAccepted = PROJECTS.filter(p => {
+    const wo = WORK_ORDERS.find(w => w.projectId === p.id && w.status === 'accepted');
+    return wo && wo.dispatchedTo === 'Sunlight Solar Co.';
+  });
+
+  // Find one each in different payment-milestone states
+  const pendingReviewProject = sunlightAccepted.find(p => ['installation','inspection'].includes(p.stage));
+  if (pendingReviewProject) {
+    const a = addAdder(pendingReviewProject.id, 450, 'Additional 40ft of EMT conduit run from subpanel to main service; customer elected exterior routing after site walk.', 'Jorge Martinez (Crew Lead)');
+    // Back-date the submittal
+    a.submittedAt = Date.now() - 1 * 86400000;
+  }
+
+  const approvedProject = sunlightAccepted.find(p => ['inspection','interconnection','rebate'].includes(p.stage) && p.id !== (pendingReviewProject && pendingReviewProject.id));
+  if (approvedProject) {
+    const a = addAdder(approvedProject.id, 650, 'Trenching through concrete apron — 18ft, required core drill rental.', 'Jorge Martinez (Crew Lead)');
+    a.submittedAt = Date.now() - 9 * 86400000;
+    a.status = 'approved';
+    a.reviewedBy = 'Shane Brennan';
+    a.reviewedAt = Date.now() - 7 * 86400000;
+    a.reviewNote = 'Approved — photos confirm concrete apron condition.';
+  }
+
+  const rejectedProject = sunlightAccepted.find(p => p.stage === 'rebate');
+  if (rejectedProject && rejectedProject.id !== (approvedProject && approvedProject.id) && rejectedProject.id !== (pendingReviewProject && pendingReviewProject.id)) {
+    const a = addAdder(rejectedProject.id, 200, 'Wi-Fi extender needed for gateway.', 'Jorge Martinez (Crew Lead)');
+    a.submittedAt = Date.now() - 14 * 86400000;
+    a.status = 'rejected';
+    a.reviewedBy = 'Shane Brennan';
+    a.reviewedAt = Date.now() - 12 * 86400000;
+    a.reviewNote = 'Per scope, Wi-Fi provisioning is installer responsibility. Not billable.';
+  }
+
+  // A second pending adder on a different project, larger amount
+  const secondPendingProject = sunlightAccepted.find(p =>
+    !['installation'].includes(p.stage) &&
+    p.id !== (pendingReviewProject && pendingReviewProject.id) &&
+    p.id !== (approvedProject && approvedProject.id) &&
+    p.id !== (rejectedProject && rejectedProject.id)
+  );
+  if (secondPendingProject) {
+    const a = addAdder(secondPendingProject.id, 1200, 'Main service panel upgrade from 100A to 200A; existing panel insufficient for battery interconnect.', 'Jorge Martinez (Crew Lead)');
+    a.submittedAt = Date.now() - 3 * 86400000;
+  }
+})();
+
+// Seed some notes for variety
+function seedNote(projectId, author, role, body, daysAgo) {
+  if (!NOTES[projectId]) NOTES[projectId] = [];
+  NOTES[projectId].push({
+    id: `n${projectId}-${NOTES[projectId].length + 1}`,
+    author, role, body,
+    createdAt: Date.now() - daysAgo * 86400000,
+  });
+}
+// Add a few demo notes to Sunlight-assigned projects
+const sunlightProjects = PROJECTS.filter(p => {
+  const wo = WORK_ORDERS.find(w => w.projectId === p.id && w.status === 'accepted');
+  return wo && wo.dispatchedTo === 'Sunlight Solar Co.';
+}).slice(0, 3);
+sunlightProjects.forEach((p, i) => {
+  if (i === 0) {
+    seedNote(p.id, 'Jorge Martinez', 'installer', 'Need to confirm roof access with customer. Driveway is narrow, bringing smaller lift.', 4);
+    seedNote(p.id, p.coord, 'coord', 'Talked to customer, gate code is 4471. They will be home all day Thursday.', 3);
+  } else if (i === 1) {
+    seedNote(p.id, 'Jorge Martinez', 'installer', 'Main panel is full — subpanel required. Electrician scheduled for day 1.', 8);
+  }
+});
+
+function getWorkOrderForProject(projectId, installer) {
+  // Returns the current/latest work order for this project for this installer
+  return WORK_ORDERS
+    .filter(w => w.projectId === projectId && (!installer || w.dispatchedTo === installer))
+    .sort((a, b) => b.dispatchedAt - a.dispatchedAt)[0];
+}
+
+function workOrderDaysLeft(wo) {
+  return Math.max(0, Math.ceil((wo.expiresAt - Date.now()) / 86400000));
+}
+
+
 // ============================================================
 function buildEmails(p) {
   const threads = [];
@@ -602,7 +909,13 @@ function getInstaller(p) { return assignedInstallers[p.id] !== undefined ? assig
 function getCoord(p) { return assignedCoords[p.id] !== undefined ? assignedCoords[p.id] : p.coord; }
 
 function visibleProjects() {
-  if (viewMode === 'installer') return PROJECTS.filter(p => getInstaller(p) === CURRENT_INSTALLER);
+  if (viewMode === 'installer') {
+    // Installer sees projects where they have an accepted work order
+    return PROJECTS.filter(p => {
+      const wo = getWorkOrderForProject(p.id, CURRENT_INSTALLER);
+      return wo && wo.status === 'accepted';
+    });
+  }
   if (currentCoord === '__all__') return PROJECTS;
   return PROJECTS.filter(p => getCoord(p) === currentCoord);
 }
@@ -656,9 +969,15 @@ const NAV_INTERNAL = [
 ];
 
 const NAV_INSTALLER = [
+  { group: 'Overview' },
+  { view: 'dashboard', label: 'Dashboard', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>' },
+  { view: 'workorders', label: 'Work Orders', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>' },
+  { group: 'Work' },
   { view: 'jobs', label: 'My Jobs', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>' },
   { view: 'tasks', label: 'My Tasks', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>' },
   { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
+  { group: 'Tracking' },
+  { view: 'payments', label: 'Payments', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>' },
   { view: 'inbox', label: 'Messages', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>' },
   { view: 'photos', label: 'Photos', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
 ];
@@ -671,6 +990,10 @@ function renderNav() {
     let countBadge = '';
     if (item.view === 'home' && viewMode === 'internal') {
       const cnt = getCoordAttentionCount(currentCoord);
+      if (cnt > 0) countBadge = `<span class="count-badge">${cnt}</span>`;
+    }
+    if (item.view === 'workorders' && viewMode === 'installer') {
+      const cnt = WORK_ORDERS.filter(w => w.dispatchedTo === CURRENT_INSTALLER && w.status === 'pending').length;
       if (cnt > 0) countBadge = `<span class="count-badge">${cnt}</span>`;
     }
     return `<div class="nav-link ${currentView === item.view ? 'active' : ''}" data-view="${item.view}">
@@ -718,7 +1041,7 @@ function setMode(mode) {
   viewMode = mode;
   document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
   document.getElementById('coordSelector').style.display = mode === 'installer' ? 'none' : 'block';
-  currentView = mode === 'installer' ? 'jobs' : 'pipeline';
+  currentView = mode === 'installer' ? 'dashboard' : 'pipeline';
   pipelineFilter = 'all';
   renderNav(); render(); closeModal();
 }
@@ -737,7 +1060,10 @@ function render() {
     else if (currentView === 'photos') renderPhotos(false);
     else if (currentView === 'metrics') renderMetrics();
   } else {
-    if (currentView === 'jobs') renderInstallerJobs();
+    if (currentView === 'dashboard') renderInstallerDashboard();
+    else if (currentView === 'workorders') renderWorkOrders();
+    else if (currentView === 'jobs') renderInstallerJobs();
+    else if (currentView === 'payments') renderInstallerPayments();
     else if (currentView === 'tasks') renderTasks(true);
     else if (currentView === 'schedule') renderSchedule();
     else if (currentView === 'inbox') renderInbox(true);
@@ -850,10 +1176,49 @@ function renderHome() {
           }).join('')}
         </div>` : ''}
 
+      ${renderPendingAddersCard()}
+
       ${isLeadership ? renderCoordLoadMini() : ''}
     </div>
   `;
   attachProjectHandlers();
+}
+
+function renderPendingAddersCard() {
+  // Collect all pending adders for visible projects (leadership sees all, coord sees their own)
+  const visibleIds = new Set(visibleProjects().map(p => p.id));
+  const pending = [];
+  for (const pid in ADDERS) {
+    if (!visibleIds.has(pid)) continue;
+    ADDERS[pid].filter(a => a.status === 'pending').forEach(a => pending.push(a));
+  }
+  if (pending.length === 0) return '';
+  pending.sort((a, b) => a.submittedAt - b.submittedAt); // oldest first
+
+  return `
+    <div class="card p-0 overflow-hidden mb-5">
+      <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between">
+        <h2 class="font-serif font-bold text-haven-forest">Installer adders awaiting review</h2>
+        <span class="text-xs text-haven-muted">${pending.length} pending · ${dollar(pending.reduce((s, a) => s + a.amount, 0))} total</span>
+      </div>
+      ${pending.map(a => {
+        const p = PROJECTS.find(pr => pr.id === a.projectId);
+        return `
+          <div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-start gap-4" data-project-id="${a.projectId}">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="font-medium">${p ? p.name : 'Project'}</span>
+                <span class="text-xs text-haven-muted">· ${a.submittedBy} · ${timeAgo(a.submittedAt)}</span>
+              </div>
+              <div class="text-sm text-haven-ink truncate">${escapeHtml(a.description)}</div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="font-semibold text-haven-forest">${dollar(a.amount)}</div>
+              <div class="text-xs text-haven-muted mt-0.5">Click to review</div>
+            </div>
+          </div>`;
+      }).join('')}
+    </div>`;
 }
 
 function renderCoordLoadMini() {
@@ -1376,27 +1741,543 @@ function renderSchedule() {
 
 
 // ============================================================
-// INSTALLER JOBS
+// INSTALLER VIEWS
 // ============================================================
+
+// Helpers shared across installer views
+function installerActiveProjects() {
+  return visibleProjects().filter(p => p.stage !== 'completed');
+}
+function installerCompletedProjects() {
+  return visibleProjects().filter(p => p.stage === 'completed');
+}
+function projectInstallerState(p) {
+  // Returns the current installer-facing state of a project
+  const d = INSTALLER_PROJECT_DATA[p.id] || {};
+  if (p.stage === 'completed') return 'completed';
+  if (d.inspectionResult === 'passed') return 'inspection_passed';
+  if (d.inspectionConfirmedDate) return 'inspection_scheduled';
+  if (d.installCompletedAt) return 'install_complete_awaiting_inspection';
+  if (d.installConfirmedDate) return 'install_scheduled';
+  return 'needs_scheduling';
+}
+const INSTALLER_STATE_LABEL = {
+  needs_scheduling: 'Needs install date',
+  install_scheduled: 'Install scheduled',
+  install_complete_awaiting_inspection: 'Awaiting inspection date',
+  inspection_scheduled: 'Inspection scheduled',
+  inspection_passed: 'Inspection passed',
+  completed: 'Completed',
+};
+const INSTALLER_STATE_TONE = {
+  needs_scheduling: 'warn',
+  install_scheduled: 'info',
+  install_complete_awaiting_inspection: 'warn',
+  inspection_scheduled: 'info',
+  inspection_passed: 'ok',
+  completed: 'neutral',
+};
+
+function installerEarnings() {
+  // Returns { paidThisMonth, paidThisWeek, outPendingInstall, outPendingInspection, lifetimePaid, pendingAdderReview, approvedAddersOutstanding }
+  const now = Date.now();
+  const weekAgo = now - 7 * 86400000;
+  const monthAgo = now - 30 * 86400000;
+  let paidThisWeek = 0, paidThisMonth = 0, lifetimePaid = 0;
+  let outPendingInstall = 0, outPendingInspection = 0;
+  let pendingAdderReview = 0, approvedAddersOutstanding = 0;
+  visibleProjects().forEach(p => {
+    const pay = PAYMENTS[p.id];
+    if (!pay) return;
+    const half = pay.amount / 2;
+    if (pay.installPaid) {
+      lifetimePaid += half;
+      if (pay.installPaidAt >= weekAgo) paidThisWeek += half;
+      if (pay.installPaidAt >= monthAgo) paidThisMonth += half;
+    } else {
+      // Outstanding install payment
+      const d = INSTALLER_PROJECT_DATA[p.id] || {};
+      if (d.installCompletedAt) outPendingInstall += half;
+    }
+    // Approved adders ride with inspection payment
+    const approvedAdders = approvedAddersTotal(p.id);
+    if (pay.inspectionPaid) {
+      lifetimePaid += half + approvedAdders;
+      if (pay.inspectionPaidAt >= weekAgo) paidThisWeek += half + approvedAdders;
+      if (pay.inspectionPaidAt >= monthAgo) paidThisMonth += half + approvedAdders;
+    } else {
+      const d = INSTALLER_PROJECT_DATA[p.id] || {};
+      if (d.inspectionResult === 'passed') {
+        outPendingInspection += half;
+        approvedAddersOutstanding += approvedAdders;
+      }
+    }
+    pendingAdderReview += pendingAddersTotal(p.id);
+  });
+  return { paidThisWeek, paidThisMonth, outPendingInstall, outPendingInspection, lifetimePaid, pendingAdderReview, approvedAddersOutstanding };
+}
+
+function dollar(n) { return '$' + Math.round(n).toLocaleString(); }
+
+// --------------------------------------------------------------
+// DASHBOARD
+// --------------------------------------------------------------
+function renderInstallerDashboard() {
+  const pendingWOs = WORK_ORDERS.filter(w => w.dispatchedTo === CURRENT_INSTALLER && w.status === 'pending');
+  const active = installerActiveProjects();
+  const completed = installerCompletedProjects();
+  const earn = installerEarnings();
+
+  // Weekly and monthly completion counts
+  const now = Date.now();
+  const weekAgo = now - 7 * 86400000;
+  const monthAgo = now - 30 * 86400000;
+  const completedThisWeek = visibleProjects().filter(p => {
+    const d = INSTALLER_PROJECT_DATA[p.id] || {};
+    return d.installCompletedAt && d.installCompletedAt >= weekAgo;
+  }).length;
+  const completedThisMonth = visibleProjects().filter(p => {
+    const d = INSTALLER_PROJECT_DATA[p.id] || {};
+    return d.installCompletedAt && d.installCompletedAt >= monthAgo;
+  }).length;
+
+  // Break down active by state
+  const byState = {};
+  active.forEach(p => {
+    const s = projectInstallerState(p);
+    byState[s] = (byState[s] || 0) + 1;
+  });
+
+  const stateCard = (state) => {
+    const n = byState[state] || 0;
+    const tone = INSTALLER_STATE_TONE[state];
+    const toneColor = tone === 'warn' ? '#E0A83A' : tone === 'ok' ? '#2F7A3E' : tone === 'danger' ? '#C44545' : '#3A6EA8';
+    return `
+      <div class="card cursor-pointer hover-lift" onclick="filterJobsByState('${state}')" style="border-left: 4px solid ${toneColor};">
+        <div class="font-serif font-bold text-3xl text-haven-forest">${n}</div>
+        <div class="text-xs text-haven-muted mt-1">${INSTALLER_STATE_LABEL[state]}</div>
+      </div>`;
+  };
+
+  main.innerHTML = `
+    <div class="p-6 max-w-6xl">
+      <div class="mb-5">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Dashboard</h1>
+        <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER}</p>
+      </div>
+
+      ${pendingWOs.length > 0 ? `
+        <div class="card mb-5" style="border-left: 4px solid #C44545; background: rgba(196, 69, 69, 0.03);">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="font-serif font-bold text-haven-danger">New work orders waiting</h2>
+                <span class="badge badge-danger">${pendingWOs.length}</span>
+              </div>
+              <p class="text-sm text-haven-muted mt-1">Respond within 3 days or the work order rolls to the next contractor</p>
+            </div>
+            <button class="btn btn-primary text-sm" onclick="goToView('workorders')">Review now →</button>
+          </div>
+        </div>` : ''}
+
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="card">
+          <div class="text-xs text-haven-muted uppercase tracking-wide">Paid this month</div>
+          <div class="font-serif font-bold text-2xl mt-1 text-haven-forest">${dollar(earn.paidThisMonth)}</div>
+          <div class="text-xs text-haven-muted mt-1">${dollar(earn.paidThisWeek)} this week</div>
+        </div>
+        <div class="card">
+          <div class="text-xs text-haven-muted uppercase tracking-wide">Outstanding</div>
+          <div class="font-serif font-bold text-2xl mt-1 text-haven-warn">${dollar(earn.outPendingInstall + earn.outPendingInspection)}</div>
+          <div class="text-xs text-haven-muted mt-1">${dollar(earn.outPendingInstall)} install · ${dollar(earn.outPendingInspection)} inspection</div>
+        </div>
+        <div class="card">
+          <div class="text-xs text-haven-muted uppercase tracking-wide">Installs this month</div>
+          <div class="font-serif font-bold text-2xl mt-1 text-haven-forest">${completedThisMonth}</div>
+          <div class="text-xs text-haven-muted mt-1">${completedThisWeek} this week</div>
+        </div>
+        <div class="card">
+          <div class="text-xs text-haven-muted uppercase tracking-wide">Active jobs</div>
+          <div class="font-serif font-bold text-2xl mt-1 text-haven-forest">${active.length}</div>
+          <div class="text-xs text-haven-muted mt-1">${completed.length} completed all time</div>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <h2 class="font-serif font-bold text-haven-forest text-lg">Where your jobs stand</h2>
+        <p class="text-xs text-haven-muted mt-0.5">Click any card to see those jobs</p>
+      </div>
+      <div class="grid grid-cols-5 gap-3 mb-6">
+        ${stateCard('needs_scheduling')}
+        ${stateCard('install_scheduled')}
+        ${stateCard('install_complete_awaiting_inspection')}
+        ${stateCard('inspection_scheduled')}
+        ${stateCard('inspection_passed')}
+      </div>
+
+      <div class="grid grid-cols-2 gap-5">
+        <div class="card">
+          <h3 class="font-serif font-bold text-haven-forest mb-3">Needs your action</h3>
+          ${(() => {
+            const action = active.filter(p => {
+              const s = projectInstallerState(p);
+              return s === 'needs_scheduling' || s === 'install_complete_awaiting_inspection';
+            }).slice(0, 5);
+            if (action.length === 0) return '<div class="text-sm text-haven-muted">All caught up.</div>';
+            return action.map(p => {
+              const s = projectInstallerState(p);
+              return `
+                <div class="py-2 border-b border-haven-border last:border-0 cursor-pointer hover:bg-haven-bg" data-project-id="${p.id}">
+                  <div class="flex items-center justify-between">
+                    <div class="font-medium text-sm">${p.name}</div>
+                    <span class="badge badge-warn">${INSTALLER_STATE_LABEL[s]}</span>
+                  </div>
+                  <div class="text-xs text-haven-muted mt-0.5">${p.city}, ${p.state} · ${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</div>
+                </div>`;
+            }).join('');
+          })()}
+        </div>
+        <div class="card">
+          <h3 class="font-serif font-bold text-haven-forest mb-3">Recent activity</h3>
+          ${(() => {
+            const withDates = visibleProjects().map(p => {
+              const d = INSTALLER_PROJECT_DATA[p.id] || {};
+              return { p, lastActivity: d.inspectionResultAt || d.installCompletedAt || 0 };
+            }).filter(x => x.lastActivity > 0).sort((a, b) => b.lastActivity - a.lastActivity).slice(0, 5);
+            if (withDates.length === 0) return '<div class="text-sm text-haven-muted">No recent activity.</div>';
+            return withDates.map(({ p, lastActivity }) => {
+              const d = INSTALLER_PROJECT_DATA[p.id];
+              const daysAgo = Math.floor((Date.now() - lastActivity) / 86400000);
+              const event = d.inspectionResult === 'passed' && d.inspectionResultAt === lastActivity
+                ? 'Inspection passed' : 'Install completed';
+              return `
+                <div class="py-2 border-b border-haven-border last:border-0 cursor-pointer hover:bg-haven-bg" data-project-id="${p.id}">
+                  <div class="flex items-center justify-between">
+                    <div class="font-medium text-sm">${p.name}</div>
+                    <span class="text-xs text-haven-muted">${daysAgo === 0 ? 'today' : `${daysAgo}d ago`}</span>
+                  </div>
+                  <div class="text-xs text-haven-muted mt-0.5">${event}</div>
+                </div>`;
+            }).join('');
+          })()}
+        </div>
+      </div>
+    </div>
+  `;
+  attachProjectHandlers();
+}
+
+window.goToView = (v) => { currentView = v; renderNav(); render(); };
+let jobsStateFilter = 'all';
+window.filterJobsByState = (s) => { jobsStateFilter = s; currentView = 'jobs'; renderNav(); render(); };
+
+// --------------------------------------------------------------
+// WORK ORDERS
+// --------------------------------------------------------------
+function renderWorkOrders() {
+  const myOrders = WORK_ORDERS.filter(w => w.dispatchedTo === CURRENT_INSTALLER);
+  const pending = myOrders.filter(w => w.status === 'pending');
+  const resolved = myOrders.filter(w => w.status !== 'pending').sort((a, b) => b.dispatchedAt - a.dispatchedAt);
+
+  const workOrderCard = (wo) => {
+    const p = PROJECTS.find(pr => pr.id === wo.projectId);
+    if (!p) return '';
+    const daysLeft = workOrderDaysLeft(wo);
+    const hoursLeft = Math.max(0, Math.floor((wo.expiresAt - Date.now()) / 3600000));
+    const urgency = daysLeft <= 1 ? 'danger' : daysLeft <= 2 ? 'warn' : 'ok';
+    const urgencyColor = urgency === 'danger' ? '#C44545' : urgency === 'warn' ? '#E0A83A' : '#2F7A3E';
+    const pay = PAYMENTS[p.id] || { amount: installerPayoutAmount(p) };
+    const coord = getCoord(p);
+    return `
+      <div class="card mb-4" style="border-left: 4px solid ${urgencyColor};">
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="font-serif font-bold text-lg text-haven-forest">${p.name}</h3>
+              <span class="badge badge-${urgency}">${daysLeft > 0 ? `${daysLeft}d` : `${hoursLeft}h`} left to respond</span>
+            </div>
+            <div class="text-sm text-haven-muted mt-1">${p.city}, ${p.state} ${p.zip}</div>
+          </div>
+          <div class="text-right">
+            <div class="text-xs text-haven-muted uppercase tracking-wide">Payout</div>
+            <div class="font-serif font-bold text-xl text-haven-forest">${dollar(pay.amount)}</div>
+            <div class="text-[11px] text-haven-muted">50% install / 50% inspection</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-4 gap-4 mb-4 pb-4 border-b border-haven-border">
+          <div><div class="text-xs text-haven-muted">System</div><div class="text-sm font-medium">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</div></div>
+          <div><div class="text-xs text-haven-muted">Utility</div><div class="text-sm font-medium">${p.utility}</div></div>
+          <div><div class="text-xs text-haven-muted">AHJ</div><div class="text-sm font-medium">${p.ahj}</div></div>
+          <div><div class="text-xs text-haven-muted">Coordinator</div><div class="text-sm font-medium">${coord}</div></div>
+        </div>
+
+        <div class="text-xs text-haven-muted mb-4">
+          Dispatched ${Math.floor((Date.now() - wo.dispatchedAt) / 86400000)}d ago${wo.fallbackQueue.length > 0 ? ` · If declined, rolls to: ${wo.fallbackQueue.join(' → ')}` : ''}
+        </div>
+
+        <div class="flex items-center justify-between">
+          <button class="text-sm text-haven-forest hover:underline" onclick="openProjectModal('${p.id}')">View project details →</button>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary text-sm" onclick="declineWorkOrder('${wo.id}')">Decline</button>
+            <button class="btn btn-primary text-sm" onclick="acceptWorkOrder('${wo.id}')">Accept & sign</button>
+          </div>
+        </div>
+      </div>`;
+  };
+
+  const resolvedRow = (wo) => {
+    const p = PROJECTS.find(pr => pr.id === wo.projectId);
+    if (!p) return '';
+    const statusBadge = wo.status === 'accepted' ? `<span class="badge badge-ok">Accepted</span>`
+      : wo.status === 'declined' ? `<span class="badge badge-danger">Declined</span>`
+      : `<span class="badge badge-neutral">Expired</span>`;
+    return `
+      <div class="py-3 px-4 border-b border-haven-border flex items-center gap-4 cursor-pointer hover:bg-haven-bg" data-project-id="${p.id}">
+        <div class="flex-1 min-w-0">
+          <div class="font-medium truncate">${p.name}</div>
+          <div class="text-xs text-haven-muted mt-0.5">${p.city}, ${p.state} · ${wo.status === 'accepted' && wo.signedBy ? `signed by ${wo.signedBy}` : wo.declinedReason ? `"${wo.declinedReason}"` : ''}</div>
+        </div>
+        <div class="text-xs text-haven-muted">${Math.floor((Date.now() - wo.dispatchedAt) / 86400000)}d ago</div>
+        ${statusBadge}
+      </div>`;
+  };
+
+  main.innerHTML = `
+    <div class="p-6 max-w-4xl">
+      <div class="mb-5">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Work Orders</h1>
+        <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER} · ${pending.length} pending, ${resolved.length} historical</p>
+      </div>
+
+      ${pending.length > 0 ? `
+        <div class="mb-6">
+          <h2 class="font-serif font-bold text-haven-forest mb-3">Pending · respond within 3 days</h2>
+          ${pending.map(workOrderCard).join('')}
+        </div>
+      ` : `
+        <div class="card text-center py-10 mb-6">
+          <div class="text-haven-muted">No pending work orders.</div>
+          <div class="text-xs text-haven-muted mt-1">Haven will notify you when a new one is dispatched.</div>
+        </div>
+      `}
+
+      ${resolved.length > 0 ? `
+        <div class="card p-0 overflow-hidden">
+          <div class="px-4 py-3 border-b border-haven-border"><h2 class="font-serif font-bold text-haven-muted text-sm uppercase tracking-wide">History</h2></div>
+          ${resolved.map(resolvedRow).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+  attachProjectHandlers();
+}
+
+function acceptWorkOrder(woId) {
+  const wo = WORK_ORDERS.find(w => w.id === woId);
+  if (!wo) return;
+  const signedBy = prompt('Enter your name to sign and accept this work order:', 'Jorge Martinez (Crew Lead)');
+  if (!signedBy) return;
+  wo.status = 'accepted';
+  wo.signedBy = signedBy;
+  wo.acceptedAt = Date.now();
+  // Assign this project's installer to the current installer if it wasn't already
+  const p = PROJECTS.find(pr => pr.id === wo.projectId);
+  if (p) assignedInstallers[p.id] = CURRENT_INSTALLER;
+  renderNav(); render();
+}
+window.acceptWorkOrder = acceptWorkOrder;
+
+function declineWorkOrder(woId) {
+  const wo = WORK_ORDERS.find(w => w.id === woId);
+  if (!wo) return;
+  const reason = prompt('Reason for declining (optional):', '');
+  wo.status = 'declined';
+  wo.declinedReason = reason || 'No reason given';
+  // Roll to next installer in fallback queue
+  if (wo.fallbackQueue.length > 0) {
+    const nextInstaller = wo.fallbackQueue[0];
+    const remainingFallback = wo.fallbackQueue.slice(1);
+    WORK_ORDERS.push({
+      id: `wo${woSeq++}`,
+      projectId: wo.projectId,
+      dispatchedTo: nextInstaller,
+      fallbackQueue: remainingFallback,
+      dispatchedAt: Date.now(),
+      expiresAt: Date.now() + WORK_ORDER_WINDOW_DAYS * 86400000,
+      status: 'pending',
+      signedBy: null, acceptedAt: null, declinedReason: null,
+    });
+    alert(`Declined. Work order rolled to ${nextInstaller}.`);
+  } else {
+    alert('Declined. No fallback contractors configured — Haven will need to dispatch manually.');
+  }
+  renderNav(); render();
+}
+window.declineWorkOrder = declineWorkOrder;
+
+// --------------------------------------------------------------
+// DISPATCH (internal-initiated)
+// --------------------------------------------------------------
+function dispatchWorkOrder(projectId) {
+  const sel = document.getElementById(`dispatchInstallerSelect-${projectId}`);
+  if (!sel) return;
+  const installer = sel.value;
+  const p = PROJECTS.find(pr => pr.id === projectId);
+  if (!p) return;
+
+  // Cancel any previous pending work order for this project
+  WORK_ORDERS.forEach(w => {
+    if (w.projectId === projectId && w.status === 'pending') w.status = 'cancelled';
+  });
+
+  // Create fresh pending work order
+  const now = Date.now();
+  WORK_ORDERS.push({
+    id: `wo${woSeq++}`,
+    projectId,
+    dispatchedTo: installer,
+    fallbackQueue: [],
+    dispatchedAt: now,
+    expiresAt: now + WORK_ORDER_WINDOW_DAYS * 86400000,
+    status: 'pending',
+    signedBy: null, acceptedAt: null, declinedReason: null,
+  });
+
+  // Ensure PAYMENTS record exists
+  if (!PAYMENTS[projectId]) {
+    PAYMENTS[projectId] = { amount: installerPayoutAmount(p), installPaid: false, inspectionPaid: false };
+  }
+
+  alert(`Work order sent to ${installer}. They have ${WORK_ORDER_WINDOW_DAYS} days to accept.`);
+  openProjectModal(projectId);
+  renderNav(); render();
+}
+window.dispatchWorkOrder = dispatchWorkOrder;
+
+function cancelWorkOrder(woId) {
+  const wo = WORK_ORDERS.find(w => w.id === woId);
+  if (!wo || wo.status !== 'pending') return;
+  if (!confirm(`Cancel work order to ${wo.dispatchedTo}?`)) return;
+  wo.status = 'cancelled';
+  openProjectModal(wo.projectId);
+  renderNav(); render();
+}
+window.cancelWorkOrder = cancelWorkOrder;
+
+// --------------------------------------------------------------
+// ADDERS
+// --------------------------------------------------------------
+function submitAdder(projectId) {
+  const amtEl = document.getElementById(`adderAmount-${projectId}`);
+  const descEl = document.getElementById(`adderDesc-${projectId}`);
+  if (!amtEl || !descEl) return;
+  const amount = Number(amtEl.value);
+  const desc = descEl.value.trim();
+  if (!amount || amount <= 0) { alert('Enter a dollar amount.'); return; }
+  if (!desc) { alert('Describe what the adder is for.'); return; }
+  addAdder(projectId, amount, desc, currentActor());
+  amtEl.value = '';
+  descEl.value = '';
+  openProjectModal(projectId);
+  renderNav(); render();
+}
+window.submitAdder = submitAdder;
+
+let pendingAdderReview = null;
+function openAdderReview(adderId, decision) {
+  pendingAdderReview = { adderId, decision };
+  // Find adder and project for label
+  let adder = null;
+  for (const pid in ADDERS) {
+    const a = ADDERS[pid].find(x => x.id === adderId);
+    if (a) { adder = a; break; }
+  }
+  if (!adder) return;
+  const p = PROJECTS.find(pr => pr.id === adder.projectId);
+  const actionLabel = decision === 'approved' ? 'Approve' : 'Reject';
+  const actionTone = decision === 'approved' ? 'btn-primary' : 'btn-secondary';
+  document.getElementById('advanceModalContent').innerHTML = `
+    <div class="p-6">
+      <h2 class="font-serif text-xl font-bold text-haven-forest mb-1">${actionLabel} adder?</h2>
+      <p class="text-sm text-haven-muted mb-4">${p ? p.name : 'Project'} · ${dollar(adder.amount)}</p>
+      <div class="card mb-4" style="background:#FAFAF7;">
+        <div class="text-xs text-haven-muted uppercase tracking-wide mb-1">Installer described</div>
+        <div class="text-sm">${escapeHtml(adder.description)}</div>
+        <div class="text-xs text-haven-muted mt-2">Submitted by ${adder.submittedBy} ${timeAgo(adder.submittedAt)}</div>
+      </div>
+      <div class="mb-4">
+        <label class="text-xs uppercase tracking-wider text-haven-muted block mb-2">Review note ${decision === 'rejected' ? '(recommended)' : '(optional)'}</label>
+        <textarea id="adderReviewNote" rows="3" class="w-full px-3 py-2 border border-haven-border rounded-md text-sm bg-white" placeholder="${decision === 'approved' ? 'e.g. Photos confirmed, approved.' : 'e.g. Per scope — not billable.'}"></textarea>
+      </div>
+      <div class="flex items-center justify-between mt-5 pt-4 border-t border-haven-border">
+        <span class="badge ${decision === 'approved' ? 'badge-ok' : 'badge-danger'}">${actionLabel}</span>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" onclick="closeAdvanceModal()">Cancel</button>
+          <button class="btn ${actionTone}" onclick="confirmAdderReview()">${actionLabel} adder</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('advanceModal').classList.remove('hidden');
+  setTimeout(() => { const t = document.getElementById('adderReviewNote'); if (t) t.focus(); }, 50);
+}
+window.openAdderReview = openAdderReview;
+
+function confirmAdderReview() {
+  if (!pendingAdderReview) return;
+  const noteEl = document.getElementById('adderReviewNote');
+  const note = noteEl ? noteEl.value.trim() || null : null;
+  const a = reviewAdder(pendingAdderReview.adderId, pendingAdderReview.decision, note);
+  const projectId = a ? a.projectId : null;
+  pendingAdderReview = null;
+  closeAdvanceModal();
+  if (projectId) openProjectModal(projectId);
+  renderNav(); render();
+}
+window.confirmAdderReview = confirmAdderReview;
+
+// --------------------------------------------------------------
+// MY JOBS (enhanced)
+// --------------------------------------------------------------
 function renderInstallerJobs() {
-  const myActive = visibleProjects().filter(p => p.stage !== 'completed');
-  const myCompleted = visibleProjects().filter(p => p.stage === 'completed');
-  function sortKey(p) {
-    if (p.stage === 'installation') return 0;
-    if (p.priority === 'urgent') return 1;
-    if (p.stage === 'scheduling') return 2;
-    return 3;
+  let active = installerActiveProjects();
+  const completed = installerCompletedProjects();
+
+  // Apply state filter if set via dashboard
+  if (jobsStateFilter !== 'all') {
+    active = active.filter(p => projectInstallerState(p) === jobsStateFilter);
   }
-  const sorted = [...myActive].sort((a, b) => sortKey(a) - sortKey(b));
-  function status(p) {
-    if (p.stage === 'installation') return { text: 'On site', tone: 'danger' };
-    if (p.stage === 'scheduling') return { text: 'Schedule install', tone: 'warn' };
-    if (p.priority === 'urgent') return { text: 'Urgent', tone: 'danger' };
-    return { text: STAGE_LABELS[p.stage], tone: 'neutral' };
-  }
+
+  const stateCounts = {};
+  installerActiveProjects().forEach(p => {
+    const s = projectInstallerState(p);
+    stateCounts[s] = (stateCounts[s] || 0) + 1;
+  });
+
+  const filterChip = (state, label) => {
+    const count = state === 'all' ? installerActiveProjects().length : stateCounts[state] || 0;
+    if (state !== 'all' && count === 0) return '';
+    return `<button class="filter-chip ${jobsStateFilter === state ? 'active' : ''}" onclick="setJobsFilter('${state}')">${label} <span class="opacity-70 ml-1">${count}</span></button>`;
+  };
+
+  // Sort by urgency
+  active.sort((a, b) => {
+    const order = ['needs_scheduling', 'install_complete_awaiting_inspection', 'install_scheduled', 'inspection_scheduled', 'inspection_passed'];
+    return order.indexOf(projectInstallerState(a)) - order.indexOf(projectInstallerState(b));
+  });
+
   const jobRow = (p) => {
-    const s = status(p);
-    const toneClass = s.tone === 'danger' ? 'text-haven-danger' : s.tone === 'warn' ? 'text-haven-warn' : 'text-haven-muted';
+    const s = projectInstallerState(p);
+    const tone = INSTALLER_STATE_TONE[s];
+    const toneClass = tone === 'danger' ? 'text-haven-danger' : tone === 'warn' ? 'text-haven-warn' : tone === 'ok' ? 'text-haven-ok' : 'text-haven-muted';
+    const d = INSTALLER_PROJECT_DATA[p.id] || {};
+    const pay = PAYMENTS[p.id];
+    let dateLine = '';
+    if (d.installConfirmedDate && !d.installCompletedAt) dateLine = `Install: ${d.installConfirmedDate}`;
+    else if (d.installCompletedAt && !d.inspectionConfirmedDate) dateLine = `Installed ${Math.floor((Date.now() - d.installCompletedAt) / 86400000)}d ago`;
+    else if (d.inspectionConfirmedDate && !d.inspectionResult) dateLine = `Inspection: ${d.inspectionConfirmedDate}`;
+    else if (d.inspectionResult === 'passed') dateLine = `Passed ${Math.floor((Date.now() - d.inspectionResultAt) / 86400000)}d ago`;
     return `
       <div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-center gap-4" data-project-id="${p.id}">
         <div class="flex-1 min-w-0">
@@ -1404,26 +2285,129 @@ function renderInstallerJobs() {
             <span class="font-medium truncate">${p.name}</span>
             <span class="text-xs text-haven-muted">· ${p.city}, ${p.state}</span>
           </div>
-          <div class="text-xs text-haven-muted mt-0.5 truncate">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''} · ${p.utility} · Coord: ${p.coord.split(' ')[0]}</div>
+          <div class="text-xs text-haven-muted mt-0.5 truncate">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''} · ${p.utility} · Coord: ${p.coord.split(' ')[0]}${dateLine ? ' · ' + dateLine : ''}</div>
         </div>
-        <div class="text-sm font-medium ${toneClass} shrink-0">${s.text}</div>
+        ${pay ? `<div class="text-right shrink-0">
+          <div class="text-xs text-haven-muted">${pay.installPaid && pay.inspectionPaid ? 'Paid' : pay.installPaid ? 'Half paid' : 'Unpaid'}</div>
+          <div class="text-sm font-medium">${dollar((pay.installPaid ? pay.amount / 2 : 0) + (pay.inspectionPaid ? pay.amount / 2 : 0))}<span class="text-haven-muted text-xs"> / ${dollar(pay.amount)}</span></div>
+        </div>` : ''}
+        <div class="text-sm font-medium ${toneClass} shrink-0 min-w-[140px] text-right">${INSTALLER_STATE_LABEL[s]}</div>
       </div>`;
   };
+
   main.innerHTML = `
-    <div class="p-6 max-w-4xl">
+    <div class="p-6 max-w-5xl">
       <div class="mb-5">
         <h1 class="font-serif text-2xl font-bold text-haven-forest">My Jobs</h1>
-        <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER} · ${myActive.length} active${myCompleted.length ? `, ${myCompleted.length} completed` : ''}</p>
+        <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER} · ${installerActiveProjects().length} active, ${completed.length} completed</p>
+      </div>
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        ${filterChip('all', 'All active')}
+        ${filterChip('needs_scheduling', 'Needs install date')}
+        ${filterChip('install_scheduled', 'Install scheduled')}
+        ${filterChip('install_complete_awaiting_inspection', 'Awaiting inspection')}
+        ${filterChip('inspection_scheduled', 'Inspection scheduled')}
+        ${filterChip('inspection_passed', 'Inspection passed')}
       </div>
       <div class="card p-0 overflow-hidden mb-5">
-        <div class="px-4 py-3 border-b border-haven-border"><h2 class="font-serif font-bold text-haven-forest">Active jobs</h2></div>
-        ${sorted.length === 0 ? '<div class="px-4 py-8 text-center text-sm text-haven-muted">No active jobs.</div>' : sorted.map(jobRow).join('')}
+        ${active.length === 0 ? '<div class="px-4 py-8 text-center text-sm text-haven-muted">No jobs in this view.</div>' : active.map(jobRow).join('')}
       </div>
-      ${myCompleted.length > 0 ? `
+      ${completed.length > 0 && jobsStateFilter === 'all' ? `
         <div class="card p-0 overflow-hidden">
-          <div class="px-4 py-3 border-b border-haven-border"><h2 class="font-serif font-bold text-haven-muted text-sm uppercase tracking-wide">Recently completed</h2></div>
-          ${myCompleted.map(p => `<div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-center gap-4" data-project-id="${p.id}"><div class="flex-1 min-w-0"><div class="font-medium truncate">${p.name}</div><div class="text-xs text-haven-muted mt-0.5 truncate">${p.city}, ${p.state} · ${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</div></div><div class="text-xs text-haven-muted">Completed</div></div>`).join('')}
+          <div class="px-4 py-3 border-b border-haven-border"><h2 class="font-serif font-bold text-haven-muted text-sm uppercase tracking-wide">Completed</h2></div>
+          ${completed.map(p => {
+            const pay = PAYMENTS[p.id];
+            return `<div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-center gap-4" data-project-id="${p.id}">
+              <div class="flex-1 min-w-0"><div class="font-medium truncate">${p.name}</div><div class="text-xs text-haven-muted mt-0.5 truncate">${p.city}, ${p.state} · ${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</div></div>
+              ${pay ? `<div class="text-xs text-haven-ok font-medium">${dollar(pay.amount)} paid</div>` : ''}
+              <div class="text-xs text-haven-muted">Completed</div>
+            </div>`;
+          }).join('')}
         </div>` : ''}
+    </div>`;
+  attachProjectHandlers();
+}
+window.setJobsFilter = (s) => { jobsStateFilter = s; render(); };
+
+// --------------------------------------------------------------
+// PAYMENTS
+// --------------------------------------------------------------
+function renderInstallerPayments() {
+  const all = visibleProjects().filter(p => PAYMENTS[p.id]);
+  const earn = installerEarnings();
+
+  const paymentRow = (p) => {
+    const pay = PAYMENTS[p.id];
+    const d = INSTALLER_PROJECT_DATA[p.id] || {};
+    const half = pay.amount / 2;
+
+    const installStatus = pay.installPaid
+      ? `<span class="badge badge-ok">Paid · ${new Date(pay.installPaidAt).toLocaleDateString()}</span>`
+      : d.installCompletedAt
+        ? `<span class="badge badge-warn">Due · completed ${Math.floor((Date.now() - d.installCompletedAt) / 86400000)}d ago</span>`
+        : `<span class="badge badge-neutral">Not yet earned</span>`;
+
+    const inspectionStatus = pay.inspectionPaid
+      ? `<span class="badge badge-ok">Paid · ${new Date(pay.inspectionPaidAt).toLocaleDateString()}</span>`
+      : d.inspectionResult === 'passed'
+        ? `<span class="badge badge-warn">Due · passed ${Math.floor((Date.now() - d.inspectionResultAt) / 86400000)}d ago</span>`
+        : `<span class="badge badge-neutral">Not yet earned</span>`;
+
+    const approved = approvedAddersTotal(p.id);
+    const pendingAddAmt = pendingAddersTotal(p.id);
+    const adderCell = approved > 0 || pendingAddAmt > 0 ? `
+      <div class="text-sm">${approved > 0 ? `<span class="text-haven-ok">${dollar(approved)} approved</span>` : ''}</div>
+      ${pendingAddAmt > 0 ? `<div class="text-xs text-haven-warn">${dollar(pendingAddAmt)} pending</div>` : ''}
+    ` : '<span class="text-xs text-haven-muted">—</span>';
+
+    return `
+      <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
+        <td class="px-4 py-3 font-medium">${p.name}</td>
+        <td class="px-4 py-3 text-sm text-haven-muted">${p.city}, ${p.state}</td>
+        <td class="px-4 py-3 font-medium">${dollar(pay.amount)}</td>
+        <td class="px-4 py-3"><div class="text-sm">${dollar(half)}</div>${installStatus}</td>
+        <td class="px-4 py-3"><div class="text-sm">${dollar(half)}</div>${inspectionStatus}</td>
+        <td class="px-4 py-3">${adderCell}</td>
+      </tr>`;
+  };
+
+  main.innerHTML = `
+    <div class="p-6 max-w-6xl">
+      <div class="mb-5">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Payments</h1>
+        <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER} · 50% on install, 50% on inspection pass · approved adders paid with inspection</p>
+      </div>
+
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="card"><div class="text-xs text-haven-muted uppercase">This week</div><div class="font-serif font-bold text-2xl mt-1 text-haven-forest">${dollar(earn.paidThisWeek)}</div></div>
+        <div class="card"><div class="text-xs text-haven-muted uppercase">This month</div><div class="font-serif font-bold text-2xl mt-1 text-haven-forest">${dollar(earn.paidThisMonth)}</div></div>
+        <div class="card">
+          <div class="text-xs text-haven-muted uppercase">Outstanding</div>
+          <div class="font-serif font-bold text-2xl mt-1 text-haven-warn">${dollar(earn.outPendingInstall + earn.outPendingInspection + earn.approvedAddersOutstanding)}</div>
+          ${earn.approvedAddersOutstanding > 0 ? `<div class="text-[11px] text-haven-muted mt-1">incl. ${dollar(earn.approvedAddersOutstanding)} approved adders</div>` : ''}
+        </div>
+        <div class="card">
+          <div class="text-xs text-haven-muted uppercase">Pending review</div>
+          <div class="font-serif font-bold text-2xl mt-1 ${earn.pendingAdderReview > 0 ? 'text-haven-warn' : 'text-haven-muted'}">${dollar(earn.pendingAdderReview)}</div>
+          <div class="text-[11px] text-haven-muted mt-1">Adders awaiting Haven approval</div>
+        </div>
+      </div>
+
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-haven-bg border-b border-haven-border">
+            <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
+              <th class="px-4 py-2.5">Project</th>
+              <th class="px-4 py-2.5">Location</th>
+              <th class="px-4 py-2.5">Base</th>
+              <th class="px-4 py-2.5">Install 50%</th>
+              <th class="px-4 py-2.5">Inspection 50%</th>
+              <th class="px-4 py-2.5">Adders</th>
+            </tr>
+          </thead>
+          <tbody>${all.length === 0 ? '<tr><td colspan="6" class="px-4 py-8 text-center text-haven-muted">No jobs yet</td></tr>' : all.map(paymentRow).join('')}</tbody>
+        </table>
+      </div>
     </div>`;
   attachProjectHandlers();
 }
@@ -2307,15 +3291,232 @@ function openProjectModal(projectId) {
     </div>
   ` : '';
 
-  const installerAckBlock = viewMode === 'installer' ? `
-    <div class="card mb-5" style="background: rgba(197, 232, 74, 0.1); border-color: rgba(1, 51, 0, 0.2);">
-      <div class="flex items-center justify-between">
-        <div><h3 class="font-serif font-bold text-haven-forest mb-1">Assigned to ${CURRENT_INSTALLER}</h3>
-        <div class="text-sm text-haven-muted">Coordinator: ${coord} · Handed off ${p.kickoffAgo}d ago</div></div>
-        <div class="flex gap-2"><button class="btn btn-secondary text-sm">Request change</button><button class="btn btn-primary text-sm">Message coordinator</button></div>
+  const installerAckBlock = viewMode === 'installer' ? (() => {
+    const d = INSTALLER_PROJECT_DATA[p.id] || {};
+    const pay = PAYMENTS[p.id];
+    const wo = getWorkOrderForProject(p.id, CURRENT_INSTALLER);
+    const state = projectInstallerState(p);
+
+    // Progress strip
+    const steps = [
+      { key: 'confirmed', label: 'Install date', done: !!d.installConfirmedDate },
+      { key: 'installed', label: 'Installed', done: !!d.installCompletedAt },
+      { key: 'insp_date', label: 'Inspection date', done: !!d.inspectionConfirmedDate },
+      { key: 'passed', label: 'Passed', done: d.inspectionResult === 'passed' },
+    ];
+
+    return `
+      <div class="card mb-5" style="background: rgba(197, 232, 74, 0.08); border-color: rgba(1, 51, 0, 0.15);">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <div class="text-xs text-haven-muted uppercase tracking-wide">Assigned to ${CURRENT_INSTALLER}</div>
+            <div class="text-sm mt-0.5">Coordinator: <span class="font-medium">${coord}</span>${wo && wo.acceptedAt ? ` · accepted ${Math.floor((Date.now() - wo.acceptedAt) / 86400000)}d ago by ${wo.signedBy}` : ''}</div>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-secondary text-sm" onclick="alert('Message to ${coord} (demo)')">Message coordinator</button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-0 mb-5">
+          ${steps.map((s, i) => `
+            <div class="flex items-center flex-1 min-w-0">
+              <div class="flex flex-col items-center flex-1">
+                <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${s.done ? 'bg-haven-forest text-white' : 'bg-white border-2 border-haven-border text-haven-muted'}">${s.done ? '✓' : i + 1}</div>
+                <div class="text-[11px] mt-1 text-center ${s.done ? 'text-haven-forest font-medium' : 'text-haven-muted'}">${s.label}</div>
+              </div>
+              ${i < steps.length - 1 ? `<div class="h-0.5 flex-1 ${steps[i + 1].done ? 'bg-haven-forest' : 'bg-haven-border'}" style="margin-top:-16px"></div>` : ''}
+            </div>`).join('')}
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <div class="text-xs text-haven-muted uppercase tracking-wide mb-2">Install</div>
+            ${d.installCompletedAt ? `
+              <div class="text-sm mb-2">Completed ${new Date(d.installCompletedAt).toLocaleDateString()}</div>
+              <button class="btn btn-secondary text-xs" onclick="alert('Photo upload (demo)')">Upload more photos</button>
+            ` : d.installConfirmedDate ? `
+              <div class="text-sm mb-2">Scheduled: <span class="font-medium">${d.installConfirmedDate}</span></div>
+              <div class="flex gap-2">
+                <button class="btn btn-primary text-sm" onclick="markInstallComplete('${p.id}')">Mark install complete</button>
+                <button class="btn btn-secondary text-sm" onclick="setInstallDate('${p.id}')">Change date</button>
+              </div>
+            ` : `
+              <div class="text-sm text-haven-muted mb-2">Not yet scheduled</div>
+              <button class="btn btn-primary text-sm" onclick="setInstallDate('${p.id}')">Set install date</button>
+            `}
+          </div>
+          <div>
+            <div class="text-xs text-haven-muted uppercase tracking-wide mb-2">Inspection</div>
+            ${d.inspectionResult === 'passed' ? `
+              <div class="text-sm mb-2"><span class="badge badge-ok">Passed</span> on ${new Date(d.inspectionResultAt).toLocaleDateString()}</div>
+            ` : d.inspectionResult === 'failed' ? `
+              <div class="text-sm mb-2"><span class="badge badge-danger">Failed</span> — re-inspection needed</div>
+              <button class="btn btn-primary text-sm" onclick="setInspectionDate('${p.id}')">Set new inspection date</button>
+            ` : d.inspectionConfirmedDate ? `
+              <div class="text-sm mb-2">Scheduled: <span class="font-medium">${d.inspectionConfirmedDate}</span></div>
+              <div class="flex gap-2">
+                <button class="btn btn-primary text-sm" onclick="markInspectionPassed('${p.id}')">Mark passed</button>
+                <button class="btn btn-secondary text-sm" onclick="markInspectionFailed('${p.id}')">Mark failed</button>
+              </div>
+            ` : d.installCompletedAt ? `
+              <div class="text-sm text-haven-muted mb-2">Install done. Schedule inspection next.</div>
+              <button class="btn btn-primary text-sm" onclick="setInspectionDate('${p.id}')">Set inspection date</button>
+            ` : `
+              <div class="text-sm text-haven-muted">Available after install completion</div>
+            `}
+          </div>
+        </div>
+
+        ${pay ? `
+          <div class="mt-4 pt-4 border-t border-haven-border flex items-center justify-between text-sm">
+            <div class="text-haven-muted">
+              Base payout: <span class="font-medium text-haven-ink">${dollar(pay.amount)}</span>
+              ${approvedAddersTotal(p.id) > 0 ? ` + <span class="text-haven-ok">${dollar(approvedAddersTotal(p.id))} approved adders</span>` : ''}
+              ${pendingAddersTotal(p.id) > 0 ? ` · <span class="text-haven-warn">${dollar(pendingAddersTotal(p.id))} pending</span>` : ''}
+              <span class="ml-3">${pay.installPaid ? `<span class="text-haven-ok">✓ Install 50% paid</span>` : `<span class="text-haven-muted">Install 50% ${d.installCompletedAt ? 'due' : 'pending'}</span>`}</span>
+              <span class="ml-3">${pay.inspectionPaid ? `<span class="text-haven-ok">✓ Inspection 50% paid</span>` : `<span class="text-haven-muted">Inspection 50% ${d.inspectionResult === 'passed' ? 'due' : 'pending'}</span>`}</span>
+            </div>
+            <a class="text-xs text-haven-forest hover:underline cursor-pointer" onclick="goToView('payments'); closeModal()">View payments →</a>
+          </div>
+        ` : ''}
       </div>
+    `;
+  })() : '';
+
+  // Dispatch work order block (internal only, shown when no accepted WO exists yet
+  // and project is in a stage that makes sense to dispatch for an installer to pick up)
+  const acceptedWO = WORK_ORDERS.find(w => w.projectId === p.id && w.status === 'accepted');
+  const pendingWO = WORK_ORDERS.find(w => w.projectId === p.id && w.status === 'pending');
+  const dispatchStageEligible = !['completed','site_survey'].includes(p.stage);
+  const dispatchBlock = viewMode === 'internal' && dispatchStageEligible && !acceptedWO ? `
+    <div class="card mb-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-serif font-bold text-haven-forest">Dispatch work order</h3>
+        ${pendingWO ? `<span class="badge badge-warn">Pending acceptance from ${pendingWO.dispatchedTo}</span>` : ''}
+      </div>
+      ${pendingWO ? `
+        <div class="text-sm text-haven-muted mb-3">
+          Work order sent to <span class="font-medium text-haven-ink">${pendingWO.dispatchedTo}</span>
+          · ${Math.max(0, workOrderDaysLeft(pendingWO))}d left to accept.
+          Fallbacks queued: ${pendingWO.fallbackQueue.length ? pendingWO.fallbackQueue.join(', ') : 'none'}.
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary text-sm" onclick="cancelWorkOrder('${pendingWO.id}')">Cancel work order</button>
+          <button class="btn btn-secondary text-sm" onclick="alert('Nudge sent (demo)')">Nudge installer</button>
+        </div>
+      ` : `
+        <div class="text-sm text-haven-muted mb-3">No installer assigned yet. Pick one to dispatch a work order for this project.</div>
+        <div class="grid grid-cols-[1fr_auto] gap-3 items-end">
+          <div>
+            <label class="text-xs text-haven-muted uppercase tracking-wide block mb-1">Installer</label>
+            <select id="dispatchInstallerSelect-${p.id}" class="w-full px-3 py-2 border border-haven-border rounded-md text-sm bg-white">
+              ${INSTALLERS.map(i => `<option value="${i}">${i}</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn btn-primary text-sm" onclick="dispatchWorkOrder('${p.id}')">Send work order</button>
+        </div>
+        <div class="text-xs text-haven-muted mt-3">
+          Payout: <span class="font-medium text-haven-ink">${installerPayoutDisplay(p)}</span>
+          ${installerPayoutFor(p) === null ? '' : ` · ${batteryCount(p)} ${batteryCount(p) === 1 ? 'battery' : 'batteries'} · 50% on install, 50% on inspection pass`}
+        </div>
+      `}
     </div>
   ` : '';
+
+  // Adders block (both modes)
+  // Installer can submit adders; internal can review pending ones.
+  const projectAdders = ADDERS[p.id] || [];
+  const pendingAdders = projectAdders.filter(a => a.status === 'pending');
+  const approvedAdders = projectAdders.filter(a => a.status === 'approved');
+  const rejectedAdders = projectAdders.filter(a => a.status === 'rejected');
+  // Only show adders block for projects where an installer is accepted or completed
+  const showAddersBlock = (acceptedWO || p.stage === 'completed');
+
+  const adderRow = (a, canReview) => {
+    const toneBadge = a.status === 'pending' ? 'badge-warn' : a.status === 'approved' ? 'badge-ok' : 'badge-danger';
+    const toneLabel = a.status === 'pending' ? 'Pending review' : a.status === 'approved' ? 'Approved' : 'Rejected';
+    return `
+      <div class="border-b border-haven-border py-3 last:border-b-0">
+        <div class="flex items-baseline justify-between gap-3 mb-1">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-haven-forest">${dollar(a.amount)}</span>
+            <span class="badge ${toneBadge}">${toneLabel}</span>
+          </div>
+          <span class="text-xs text-haven-muted">${timeAgo(a.submittedAt)}</span>
+        </div>
+        <div class="text-sm text-haven-ink mb-1">${escapeHtml(a.description)}</div>
+        <div class="text-xs text-haven-muted">
+          Submitted by ${a.submittedBy}${a.reviewedBy ? ` · ${a.status} by ${a.reviewedBy} ${timeAgo(a.reviewedAt)}` : ''}
+        </div>
+        ${a.reviewNote ? `<div class="text-xs italic mt-1" style="color:#4a5048;">"${escapeHtml(a.reviewNote)}"</div>` : ''}
+        ${canReview && a.status === 'pending' ? `
+          <div class="flex gap-2 mt-2">
+            <button class="btn btn-primary text-xs" onclick="openAdderReview('${a.id}', 'approved')">Approve</button>
+            <button class="btn btn-secondary text-xs" onclick="openAdderReview('${a.id}', 'rejected')">Reject</button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  };
+
+  const addersBlock = showAddersBlock ? `
+    <div class="card mb-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-serif font-bold text-haven-forest">Adders</h3>
+        <div class="flex items-center gap-3 text-xs">
+          ${pendingAdders.length ? `<span class="badge badge-warn">${pendingAdders.length} pending</span>` : ''}
+          ${approvedAdders.length ? `<span class="text-haven-ok">${dollar(approvedAddersTotal(p.id))} approved</span>` : ''}
+        </div>
+      </div>
+      ${projectAdders.length === 0 ? `<div class="text-sm text-haven-muted ${viewMode === 'installer' ? 'mb-3' : ''}">No adders submitted for this project.</div>` : `
+        <div class="mb-3">
+          ${projectAdders.slice().sort((a, b) => b.submittedAt - a.submittedAt).map(a => adderRow(a, viewMode === 'internal')).join('')}
+        </div>
+      `}
+      ${viewMode === 'installer' ? `
+        <div class="pt-3 border-t border-haven-border">
+          <div class="text-xs text-haven-muted uppercase tracking-wide mb-2">Submit a new adder</div>
+          <div class="grid grid-cols-[130px_1fr_auto] gap-2 items-start">
+            <input type="number" id="adderAmount-${p.id}" placeholder="$0" class="px-3 py-2 border border-haven-border rounded-md text-sm bg-white" min="0" step="1" />
+            <textarea id="adderDesc-${p.id}" rows="1" placeholder="What's the extra work? (e.g. 40ft trenching through concrete)" class="px-3 py-2 border border-haven-border rounded-md text-sm bg-white resize-none"></textarea>
+            <button class="btn btn-primary text-sm" onclick="submitAdder('${p.id}')">Submit</button>
+          </div>
+          <div class="text-xs text-haven-muted mt-2">Approved adders are paid with the inspection payment.</div>
+        </div>
+      ` : ''}
+    </div>
+  ` : '';
+
+  // Notes block (both internal and installer)
+  const projectNotes = NOTES[p.id] || [];
+  const notesBlock = `
+    <div class="card mb-5">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-serif font-bold text-haven-forest">Notes</h3>
+        <span class="text-xs text-haven-muted">${projectNotes.length} note${projectNotes.length === 1 ? '' : 's'}</span>
+      </div>
+      ${projectNotes.length === 0 ? '<div class="text-sm text-haven-muted mb-3">No notes yet. Leave a note so everyone on this job stays in the loop.</div>' : `
+        <div class="space-y-3 mb-4">
+          ${projectNotes.slice().sort((a, b) => b.createdAt - a.createdAt).map(n => `
+            <div class="border-l-2 border-haven-border pl-3">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="font-medium text-sm">${n.author}</span>
+                <span class="badge badge-${n.role === 'installer' ? 'info' : 'neutral'}">${n.role === 'installer' ? 'Installer' : 'Coordinator'}</span>
+                <span class="text-xs text-haven-muted">${timeAgo(n.createdAt)}</span>
+              </div>
+              <div class="text-sm text-haven-ink whitespace-pre-wrap">${escapeHtml(n.body)}</div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+      <div class="pt-3 border-t border-haven-border">
+        <textarea id="newNote-${p.id}" rows="2" class="w-full px-3 py-2 border border-haven-border rounded-md text-sm bg-white" placeholder="Add a note..."></textarea>
+        <div class="flex justify-end mt-2">
+          <button class="btn btn-primary text-sm" onclick="addNote('${p.id}')">Post note</button>
+        </div>
+      </div>
+    </div>
+  `;
 
   // Parallel tracks block (internal only)
   const tracks = p.tracks || {};
@@ -2378,7 +3579,7 @@ function openProjectModal(projectId) {
         <div class="text-right"><div class="text-xs text-haven-muted uppercase tracking-wide">Current Stage</div>
         <div class="font-serif font-bold text-lg text-haven-forest">${p.stage === 'completed' ? 'Completed' : STAGE_LABELS[p.stage]}</div>${slaBadge}</div>
       </div>
-      ${healthBlock}${coordAssignmentBlock}${installerAckBlock}
+      ${healthBlock}${coordAssignmentBlock}${installerAckBlock}${dispatchBlock}${addersBlock}
 
       <div class="card mb-5">
         <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -2463,6 +3664,8 @@ function openProjectModal(projectId) {
       </div>
 
       ${submittalsBlock}
+
+      ${notesBlock}
 
       <div class="card mb-5">
         <div class="flex items-center justify-between mb-3">
@@ -2659,6 +3862,110 @@ window.closeAdvanceModal = () => document.getElementById('advanceModal').classLi
 // ============================================================
 // SHARED
 // ============================================================
+
+// Utility
+function timeAgo(ms) {
+  const s = Math.floor((Date.now() - ms) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  return new Date(ms).toLocaleDateString();
+}
+function escapeHtml(s) {
+  return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Notes
+function addNote(projectId) {
+  const ta = document.getElementById('newNote-' + projectId);
+  if (!ta) return;
+  const body = ta.value.trim();
+  if (!body) return;
+  if (!NOTES[projectId]) NOTES[projectId] = [];
+  NOTES[projectId].push({
+    id: `n${projectId}-${NOTES[projectId].length + 1}`,
+    author: viewMode === 'installer' ? 'Jorge Martinez' : currentActor(),
+    role: viewMode === 'installer' ? 'installer' : 'coord',
+    body,
+    createdAt: Date.now(),
+  });
+  openProjectModal(projectId);
+}
+window.addNote = addNote;
+
+// Installer workflow actions
+function setInstallDate(projectId) {
+  const existing = (INSTALLER_PROJECT_DATA[projectId] || {}).installConfirmedDate || '';
+  const val = prompt('Confirm install date (YYYY-MM-DD):', existing || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
+  if (!val) return;
+  if (!INSTALLER_PROJECT_DATA[projectId]) INSTALLER_PROJECT_DATA[projectId] = {};
+  INSTALLER_PROJECT_DATA[projectId].installConfirmedDate = val;
+  openProjectModal(projectId); render();
+}
+window.setInstallDate = setInstallDate;
+
+function markInstallComplete(projectId) {
+  if (!confirm('Mark install complete? This will trigger the first 50% payment review.')) return;
+  if (!INSTALLER_PROJECT_DATA[projectId]) INSTALLER_PROJECT_DATA[projectId] = {};
+  INSTALLER_PROJECT_DATA[projectId].installCompletedAt = Date.now();
+  // Auto-advance project to inspection stage if currently at installation
+  const p = PROJECTS.find(pr => pr.id === projectId);
+  if (p && p.stage === 'installation') {
+    moveProjectStage(projectId, 'inspection', 'Install complete, confirmed by installer');
+  }
+  openProjectModal(projectId); render();
+}
+window.markInstallComplete = markInstallComplete;
+
+function setInspectionDate(projectId) {
+  const existing = (INSTALLER_PROJECT_DATA[projectId] || {}).inspectionConfirmedDate || '';
+  const val = prompt('Confirm inspection date (YYYY-MM-DD):', existing || new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10));
+  if (!val) return;
+  if (!INSTALLER_PROJECT_DATA[projectId]) INSTALLER_PROJECT_DATA[projectId] = {};
+  INSTALLER_PROJECT_DATA[projectId].inspectionConfirmedDate = val;
+  // Clear any prior result if we're rescheduling
+  INSTALLER_PROJECT_DATA[projectId].inspectionResult = null;
+  INSTALLER_PROJECT_DATA[projectId].inspectionResultAt = null;
+  openProjectModal(projectId); render();
+}
+window.setInspectionDate = setInspectionDate;
+
+function markInspectionPassed(projectId) {
+  if (!confirm('Mark inspection as passed? This will trigger the second 50% payment review.')) return;
+  if (!INSTALLER_PROJECT_DATA[projectId]) INSTALLER_PROJECT_DATA[projectId] = {};
+  INSTALLER_PROJECT_DATA[projectId].inspectionResult = 'passed';
+  INSTALLER_PROJECT_DATA[projectId].inspectionResultAt = Date.now();
+  const p = PROJECTS.find(pr => pr.id === projectId);
+  if (p && p.stage === 'inspection') {
+    moveProjectStage(projectId, 'interconnection', 'Inspection passed');
+  }
+  openProjectModal(projectId); render();
+}
+window.markInspectionPassed = markInspectionPassed;
+
+function markInspectionFailed(projectId) {
+  const reason = prompt('Reason for failure:', '');
+  if (reason === null) return;
+  if (!INSTALLER_PROJECT_DATA[projectId]) INSTALLER_PROJECT_DATA[projectId] = {};
+  INSTALLER_PROJECT_DATA[projectId].inspectionResult = 'failed';
+  INSTALLER_PROJECT_DATA[projectId].inspectionResultAt = Date.now();
+  if (reason) {
+    if (!NOTES[projectId]) NOTES[projectId] = [];
+    NOTES[projectId].push({
+      id: `n${projectId}-${NOTES[projectId].length + 1}`,
+      author: 'Jorge Martinez', role: 'installer',
+      body: `Inspection failed: ${reason}`,
+      createdAt: Date.now(),
+    });
+  }
+  openProjectModal(projectId); render();
+}
+window.markInspectionFailed = markInspectionFailed;
+
 function saveAssignment(projectId) {
   const val = document.getElementById('installerSelect').value;
   assignedInstallers[projectId] = val || null;
