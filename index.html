@@ -278,6 +278,184 @@ const PROJECTS_RAW = [
   { name: 'Karen Wu', city: 'Burlingame', state: 'CA', zip: '94010', utility: 'PG&E', ahj: 'City of Burlingame', solar: 6.8, battery: 13.5, stage: 'completed', daysInStage: 0, priority: 'normal', coord: 'Tenacia Williams', installer: 'Sunlight Solar Co.', surveyor: 'GreenEye Site Survey', cycleDays: 68, waitingOn: 'nothing', lastTouchedDaysAgo: 18, tracks: { hoa: 'done', financing: 'done', utility_preapp: 'done' } },
 ];
 
+// ============================================================
+// SCALE: synthesize 800 pre-install + 500 completed projects in CA
+// ============================================================
+(function generateScaleProjects() {
+  let seed = 7919;
+  const rand = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const pick = (arr) => arr[Math.floor(rand() * arr.length)];
+  const between = (lo, hi) => lo + Math.floor(rand() * (hi - lo + 1));
+
+  const CA_LOCATIONS = [
+    { city: 'San Jose', ahj: 'City of San Jose', zip: '95126', utility: 'PG&E' },
+    { city: 'San Jose', ahj: 'City of San Jose', zip: '95112', utility: 'PG&E' },
+    { city: 'San Jose', ahj: 'City of San Jose', zip: '95128', utility: 'PG&E' },
+    { city: 'Oakland', ahj: 'City of Oakland', zip: '94611', utility: 'PG&E' },
+    { city: 'Oakland', ahj: 'City of Oakland', zip: '94602', utility: 'PG&E' },
+    { city: 'Fremont', ahj: 'City of Fremont', zip: '94536', utility: 'PG&E' },
+    { city: 'Fremont', ahj: 'City of Fremont', zip: '94539', utility: 'PG&E' },
+    { city: 'Berkeley', ahj: 'City of Berkeley', zip: '94704', utility: 'PG&E' },
+    { city: 'Berkeley', ahj: 'City of Berkeley', zip: '94703', utility: 'PG&E' },
+    { city: 'Mountain View', ahj: 'City of Mountain View', zip: '94040', utility: 'PG&E' },
+    { city: 'Sunnyvale', ahj: 'City of Sunnyvale', zip: '94086', utility: 'PG&E' },
+    { city: 'Sunnyvale', ahj: 'City of Sunnyvale', zip: '94087', utility: 'PG&E' },
+    { city: 'Palo Alto', ahj: 'City of Palo Alto', zip: '94301', utility: 'PG&E' },
+    { city: 'San Mateo', ahj: 'City of San Mateo', zip: '94402', utility: 'PG&E' },
+    { city: 'Redwood City', ahj: 'City of Redwood City', zip: '94063', utility: 'PG&E' },
+    { city: 'Hayward', ahj: 'City of Hayward', zip: '94541', utility: 'PG&E' },
+    { city: 'Daly City', ahj: 'City of Daly City', zip: '94014', utility: 'PG&E' },
+    { city: 'San Francisco', ahj: 'City and County of SF', zip: '94110', utility: 'PG&E' },
+    { city: 'San Francisco', ahj: 'City and County of SF', zip: '94107', utility: 'PG&E' },
+    { city: 'Alameda', ahj: 'City of Alameda', zip: '94501', utility: 'PG&E' },
+    { city: 'San Carlos', ahj: 'City of San Carlos', zip: '94070', utility: 'PG&E' },
+    { city: 'Millbrae', ahj: 'City of Millbrae', zip: '94030', utility: 'PG&E' },
+    { city: 'Burlingame', ahj: 'City of Burlingame', zip: '94010', utility: 'PG&E' },
+    { city: 'Half Moon Bay', ahj: 'City of Half Moon Bay', zip: '94019', utility: 'PCE' },
+    { city: 'Pacifica', ahj: 'City of Pacifica', zip: '94044', utility: 'PCE' },
+    { city: 'Pasadena', ahj: 'City of Pasadena', zip: '91101', utility: 'SCE' },
+    { city: 'Long Beach', ahj: 'City of Long Beach', zip: '90803', utility: 'SCE' },
+    { city: 'Irvine', ahj: 'City of Irvine', zip: '92614', utility: 'SCE' },
+    { city: 'Santa Monica', ahj: 'City of Santa Monica', zip: '90401', utility: 'SCE' },
+    { city: 'Glendale', ahj: 'City of Glendale', zip: '91204', utility: 'SCE' },
+    { city: 'San Diego', ahj: 'City of San Diego', zip: '92103', utility: 'SDG&E' },
+    { city: 'San Diego', ahj: 'City of San Diego', zip: '92109', utility: 'SDG&E' },
+    { city: 'La Jolla', ahj: 'City of San Diego', zip: '92037', utility: 'SDG&E' },
+  ];
+
+  const FIRST_NAMES = [
+    'Alex','Jordan','Sam','Morgan','Casey','Taylor','Riley','Jamie','Chris','Pat','Drew','Blake','Hayden','Quinn','Avery','Reese','Sage','River','Parker','Rowan',
+    'Michael','Jessica','David','Sarah','John','Ashley','James','Emily','Robert','Jennifer','William','Lauren','Daniel','Rachel','Matthew','Amanda','Andrew','Nicole','Joseph','Heather',
+    'Ryan','Olivia','Ethan','Sophia','Nathan','Madison','Tyler','Rebecca','Kyle','Laura','Brandon','Stephanie','Justin','Kimberly','Adam','Melissa','Aaron','Christina','Nicholas','Lisa',
+    'Priya','Arjun','Mei','Wei','Hiroshi','Yuki','Kenji','Jin','Raj','Anita','Sanjay','Deepa','Carlos','Sofia','Miguel','Isabela','Diego','Luna','Omar','Fatima','Hassan','Aisha',
+    'Malik','Zara','Kwame','Nia','Kofi','Ayana','Desmond','Imani','Ivan','Natasha','Dmitri','Svetlana','Lars','Ingrid','Bjorn','Astrid'
+  ];
+  const LAST_NAMES = [
+    'Chen','Martinez','Kim','Park','Rivera','Zhang','Thompson','Anderson','Wilson','Foster','Mendez','Lee','Brooks','Nguyen','Patel','Ramirez','Walsh','Johnson','Torres','Garcia',
+    'Hendricks','Wu','Murphy','Green','Shah','Reyes','Kowalski','Tran','Huang','Liu','Singh','Gupta','Khan','Yamada','Sato','Tanaka','Nakamura','Suzuki',
+    'Hassan','Okafor','Adebayo','Mensah','Asante','Volkov','Petrov','Sokolov','Novak','Dubois','Laurent','Rossi','Ricci','Fischer','Schmidt','Mueller','Silva','Oliveira','Lopez','Hernandez',
+    'Nakashima','Davis','Miller','Moore','Taylor','Jackson','White','Harris','Young','King','Wright','Scott','Hill','Baker','Nelson','Carter','Mitchell','Perez','Roberts','Phillips'
+  ];
+
+  const STAGE_ALLOCATION = {
+    site_survey: 70, design: 100, permitting: 180, scheduling: 50,
+    installation: 20, inspection: 100, interconnection: 200, rebate: 80,
+  };
+
+  function waitingOnDistribution(stage) {
+    if (stage === 'site_survey') return ['customer','customer','customer','internal','internal','nothing'];
+    if (stage === 'design') return ['internal','internal','customer','customer','customer','nothing'];
+    if (stage === 'permitting') return ['ahj','ahj','ahj','ahj','internal','customer'];
+    if (stage === 'scheduling') return ['customer','customer','installer','installer','internal','nothing'];
+    if (stage === 'installation') return ['installer','installer','installer','customer','nothing'];
+    if (stage === 'inspection') return ['ahj','ahj','ahj','installer','internal'];
+    if (stage === 'interconnection') return ['utility','utility','utility','utility','internal','customer'];
+    if (stage === 'rebate') return ['internal','internal','utility','customer','nothing'];
+    return ['nothing'];
+  }
+
+  function genNextAction(stage) {
+    const pool = {
+      site_survey: ['Schedule survey window with customer', 'Review survey report', 'Reschedule — customer cancelled', 'Send surveyor access instructions', 'Follow up on survey completion'],
+      design: ['Send revised design to customer', 'Internal design review', 'Kick off design from survey package', 'Customer design approval call', 'Revise based on customer feedback'],
+      permitting: ['Submit permit package to AHJ', 'Follow up with plan reviewer', 'Check AHJ portal for reviewer assignment', 'Resubmit revised drawings', 'Escalate to head of permitting'],
+      scheduling: ['Confirm install date with customer', 'Lock install window with installer', 'Equipment order confirmation', 'Reschedule due to weather'],
+      installation: ['Review installer site photos', 'Day-of install confirmation call', 'Coordinator QA review', 'Flag: customer dispute on placement'],
+      inspection: ['Schedule final inspection with AHJ', 'Confirm inspector arrival', 'Process inspection result', 'Address rework items from inspector'],
+      interconnection: ['Call utility rep re: PTO delay', 'Submit interconnection application', 'Follow-up on PTO', 'Respond to utility clarification request'],
+      rebate: ['Submit SGIP RSSE payment', 'Verify rebate receipt', 'Follow up with PA', 'Submit final paperwork'],
+    };
+    return pick(pool[stage] || pool.site_survey);
+  }
+
+  function pickTracks(stage) {
+    const stageIdx = STAGE_ORDER.indexOf(stage);
+    if (stageIdx <= 1) {
+      return { hoa: pick(['in_progress','done','na','not_started']), financing: pick(['in_progress','done','done']), utility_preapp: pick(['not_started','in_progress','in_progress']) };
+    } else if (stageIdx <= 3) {
+      return { hoa: pick(['done','done','na']), financing: 'done', utility_preapp: pick(['in_progress','done','done']) };
+    }
+    return { hoa: pick(['done','na']), financing: 'done', utility_preapp: 'done' };
+  }
+
+  function riskySignals(stage, target) {
+    const riskRoll = rand();
+    let daysInStage, priority, nextAction, nextActionDueInDays, lastTouchedDaysAgo, waitingOn;
+    if (riskRoll < 0.10) {
+      daysInStage = target + between(2, 18);
+      priority = rand() < 0.5 ? 'urgent' : 'high';
+      nextAction = rand() < 0.4 ? null : genNextAction(stage);
+      nextActionDueInDays = nextAction ? between(-8, -1) : null;
+      lastTouchedDaysAgo = between(5, 14);
+    } else if (riskRoll < 0.35) {
+      daysInStage = Math.round(target * (0.7 + rand() * 0.4));
+      priority = rand() < 0.3 ? 'high' : 'normal';
+      nextAction = rand() < 0.15 ? null : genNextAction(stage);
+      nextActionDueInDays = nextAction ? between(-2, 4) : null;
+      lastTouchedDaysAgo = between(2, 8);
+    } else {
+      daysInStage = between(0, Math.max(1, Math.round(target * 0.6)));
+      priority = rand() < 0.1 ? 'high' : rand() < 0.85 ? 'normal' : 'low';
+      nextAction = rand() < 0.05 ? null : genNextAction(stage);
+      nextActionDueInDays = nextAction ? between(0, 6) : null;
+      lastTouchedDaysAgo = between(0, 4);
+    }
+    waitingOn = pick(waitingOnDistribution(stage));
+    return { daysInStage, priority, nextAction, nextActionDueInDays, lastTouchedDaysAgo, waitingOn };
+  }
+
+  const COORDS = ['Shane Brennan','Danny Chen','Yaz Okonkwo','Tenacia Williams'];
+  const INSTALLERS_POOL = ['Sunlight Solar Co.','Bay Area Solar Installers','Pacific Coast Solar','Golden State Electric','NorCal Renewable','Bright Energy Contracting'];
+  const SURVEYORS = ['SiteCheck Pros','RoofScan Services','GreenEye Site Survey','Precision Assessments'];
+  const BATTERY_SIZES = [10.0, 13.5, 13.5, 13.5, 20.0];
+  const SOLAR_SIZES = [5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 10.0, 11.0, 12.0];
+
+  function buildOne(stageOverride, isCompleted) {
+    const loc = pick(CA_LOCATIONS);
+    const name = `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`;
+    const coord = pick(COORDS);
+
+    if (isCompleted) {
+      return {
+        name, city: loc.city, state: 'CA', zip: loc.zip, utility: loc.utility, ahj: loc.ahj,
+        solar: pick(SOLAR_SIZES), battery: pick(BATTERY_SIZES),
+        stage: 'completed', daysInStage: 0, priority: 'normal',
+        coord, installer: pick(INSTALLERS_POOL), surveyor: pick(SURVEYORS),
+        cycleDays: between(55, 120), waitingOn: 'nothing',
+        lastTouchedDaysAgo: between(5, 180),
+        tracks: { hoa: pick(['done','na']), financing: 'done', utility_preapp: 'done' },
+      };
+    }
+
+    const stage = stageOverride;
+    const target = STAGE_TARGETS_CA[stage] || 10;
+    const signals = riskySignals(stage, target);
+    const stageIdx = STAGE_ORDER.indexOf(stage);
+    const installer = stageIdx >= STAGE_ORDER.indexOf('scheduling') ? pick(INSTALLERS_POOL) : null;
+
+    return {
+      name, city: loc.city, state: 'CA', zip: loc.zip, utility: loc.utility, ahj: loc.ahj,
+      solar: pick(SOLAR_SIZES), battery: pick(BATTERY_SIZES),
+      stage,
+      daysInStage: signals.daysInStage,
+      priority: signals.priority,
+      coord, installer, surveyor: pick(SURVEYORS),
+      nextAction: signals.nextAction,
+      nextActionOwner: signals.nextAction ? coord : null,
+      nextActionDueInDays: signals.nextActionDueInDays,
+      waitingOn: signals.waitingOn,
+      lastTouchedDaysAgo: signals.lastTouchedDaysAgo,
+      tracks: pickTracks(stage),
+    };
+  }
+
+  Object.entries(STAGE_ALLOCATION).forEach(([stage, count]) => {
+    for (let i = 0; i < count; i++) PROJECTS_RAW.push(buildOne(stage, false));
+  });
+  for (let i = 0; i < 500; i++) PROJECTS_RAW.push(buildOne(null, true));
+})();
+
+
 // Stage durations for completed projects — for time-allocation viz
 const COMPLETED_STAGE_DURATIONS = {
   site_survey: [5, 6, 8, 7],
@@ -461,8 +639,14 @@ PROJECTS.forEach(p => {
 const PHOTO_CATEGORIES = ['roof_north', 'roof_south', 'main_panel', 'meter', 'attic', 'battery_location', 'inverter', 'subpanel'];
 const PHOTOS = [];
 let photoId = 0;
+// Only generate photos for projects that are plausibly past installation — that's when photos exist.
+// Cap at 6 photos per project max for startup performance.
 PROJECTS.forEach(proj => {
-  const n = 3 + Math.floor(Math.random() * 8);
+  const pastInstallIdx = STAGE_ORDER.indexOf('installation');
+  const projStageIdx = STAGE_ORDER.indexOf(proj.stage);
+  const isPostInstall = proj.stage === 'completed' || (projStageIdx >= 0 && projStageIdx >= pastInstallIdx);
+  if (!isPostInstall) return;
+  const n = 3 + Math.floor(Math.random() * 4); // 3-6 photos
   for (let i = 0; i < n; i++) {
     photoId++;
     PHOTOS.push({
@@ -962,13 +1146,12 @@ const NAV_INTERNAL = [
   { view: 'projects', label: 'Projects', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>' },
   { view: 'tasks', label: 'Tasks', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>' },
   { group: 'Tracking' },
-  { view: 'submittals', label: 'Submittals', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>' },
   { view: 'post_install', label: 'Post-Install', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>' },
   { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
   { view: 'inbox', label: 'Inbox', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>' },
-  { view: 'photos', label: 'Photos', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
-  { group: 'Leadership' },
+  { group: 'Reporting' },
   { view: 'metrics', label: 'Metrics', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>' },
+  { view: 'monthly_stats', label: 'Monthly Stats', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
 ];
 
 const NAV_INSTALLER = [
@@ -1058,12 +1241,11 @@ function render() {
     else if (currentView === 'pipeline') renderPipeline();
     else if (currentView === 'projects') renderProjects();
     else if (currentView === 'tasks') renderTasks(false);
-    else if (currentView === 'submittals') renderSubmittals();
     else if (currentView === 'post_install') renderPostInstall();
     else if (currentView === 'schedule') renderSchedule();
     else if (currentView === 'inbox') renderInbox(false);
-    else if (currentView === 'photos') renderPhotos(false);
     else if (currentView === 'metrics') renderMetrics();
+    else if (currentView === 'monthly_stats') renderMonthlyStats();
   } else {
     if (currentView === 'dashboard') renderInstallerDashboard();
     else if (currentView === 'workorders') renderWorkOrders();
@@ -1155,7 +1337,13 @@ function renderHome() {
           <h2 class="font-serif font-bold text-haven-forest">Needs attention</h2>
           <span class="text-xs text-haven-muted">Sorted by risk</span>
         </div>
-        ${attention.length === 0 ? '<div class="px-4 py-8 text-center text-sm text-haven-muted">All projects have next actions and recent activity.</div>' : attention.map(attentionRow).join('')}
+        ${attention.length === 0 ? '<div class="px-4 py-8 text-center text-sm text-haven-muted">All projects have next actions and recent activity.</div>' : (() => {
+          const CAP = 30;
+          const shown = attention.slice(0, CAP);
+          const extra = attention.length - shown.length;
+          return shown.map(attentionRow).join('') +
+            (extra > 0 ? `<div class="px-4 py-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing top ${CAP} of ${attention.length} — highest risk first</div>` : '');
+        })()}
       </div>
 
       ${customerSilent.length > 0 ? `
@@ -1264,6 +1452,12 @@ function renderPipeline() {
     return;
   }
 
+  // Completed view: list style (not kanban)
+  if (pipelineFilter === 'completed') {
+    renderPipelineCompleted();
+    return;
+  }
+
   const activeAll = pipelineFilteredProjects();
   const byStage = {};
   STAGE_ORDER.forEach(s => byStage[s] = activeAll.filter(p => p.stage === s));
@@ -1273,6 +1467,7 @@ function renderPipeline() {
   const totalCount = stateFilteredAll.length;
   const readyCount = stateFilteredAll.filter(p => isReadyToAdvance(p)).length;
   const atRiskCount = stateFilteredAll.filter(p => p.riskLevel === 'high').length;
+  const completedCount = visibleProjects().filter(p => p.stage === 'completed' && (pipelineStateFilter === 'all' || p.state === pipelineStateFilter)).length;
 
   const coordLabel = currentCoord === '__all__' ? 'All coordinators' : currentCoord;
 
@@ -1293,6 +1488,7 @@ function renderPipeline() {
         <button class="filter-chip ${pipelineFilter === 'all' ? 'active' : ''}" onclick="setPipelineFilter('all')">All <span class="opacity-70 ml-1">${totalCount}</span></button>
         <button class="filter-chip ${pipelineFilter === 'ready_to_advance' ? 'active' : ''}" onclick="setPipelineFilter('ready_to_advance')" style="${pipelineFilter !== 'ready_to_advance' && readyCount > 0 ? 'border-color:#2F7A3E;color:#2F7A3E;' : ''}">✓ Ready to advance <span class="opacity-70 ml-1">${readyCount}</span></button>
         <button class="filter-chip ${pipelineFilter === 'at_risk' ? 'active' : ''}" onclick="setPipelineFilter('at_risk')" style="${pipelineFilter !== 'at_risk' && atRiskCount > 0 ? 'border-color:#C44545;color:#C44545;' : ''}">⚠ At risk <span class="opacity-70 ml-1">${atRiskCount}</span></button>
+        <button class="filter-chip ${pipelineFilter === 'completed' ? 'active' : ''}" onclick="setPipelineFilter('completed')">✓ Completed <span class="opacity-70 ml-1">${completedCount}</span></button>
         ${pipelineSearch ? `<span class="text-xs text-haven-muted ml-2">${activeAll.length} match${activeAll.length === 1 ? '' : 'es'} for "${pipelineSearch}"</span>` : ''}
       </div>
 
@@ -1308,7 +1504,15 @@ function renderPipeline() {
                 <div class="text-xs text-haven-muted">${byStage[stage].length}</div>
               </div>
               <div class="space-y-2 flex-1 drop-zone rounded-md transition-colors" data-stage="${stage}">
-                ${byStage[stage].length === 0 ? '<div class="text-xs text-haven-muted text-center py-6 border border-dashed border-haven-border rounded-md">None</div>' : byStage[stage].sort((a,b)=>b.risk - a.risk).map(p => pipelineCard(p)).join('')}
+                ${(() => {
+                  if (byStage[stage].length === 0) return '<div class="text-xs text-haven-muted text-center py-6 border border-dashed border-haven-border rounded-md">None</div>';
+                  const sorted = byStage[stage].slice().sort((a,b)=>b.risk - a.risk);
+                  const CAP = 15;
+                  const shown = sorted.slice(0, CAP);
+                  const extra = sorted.length - shown.length;
+                  return shown.map(p => pipelineCard(p)).join('') +
+                    (extra > 0 ? `<button class="w-full text-xs text-haven-forest hover:bg-haven-bg border border-dashed border-haven-border rounded-md py-3 font-medium" onclick="drilldownStage('${stage}')">+${extra} more →</button>` : '');
+                })()}
               </div>
             </div>`).join('')}
         </div>
@@ -1424,25 +1628,31 @@ function renderPipelineDrilldown() {
                     </tr>
                   </thead>
                   <tbody>
-                    ${rows.sort((a, b) => b.risk - a.risk).map(p => {
-                      const coord = getCoord(p);
-                      const overdue = p.slaStatus === 'breached';
-                      const inst = getInstaller(p);
-                      return `
-                        <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
-                          <td class="px-4 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
-                          <td class="px-4 py-2.5">
-                            <div class="font-medium text-haven-forest">${p.name}</div>
-                            <div class="text-[11px] text-haven-muted">${p.projectNumber}</div>
-                          </td>
-                          <td class="px-4 py-2.5 text-haven-muted">${p.city}, ${p.state}</td>
-                          <td class="px-4 py-2.5 text-xs text-haven-muted">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</td>
-                          <td class="px-4 py-2.5">${avatar(coord, 18)} <span class="text-xs ml-1 align-middle">${coord.split(' ')[0]}</span></td>
-                          <td class="px-4 py-2.5 ${overdue ? 'text-haven-danger font-medium' : ''}">${p.daysInStage}d${overdue ? ` (${p.daysOverdue}d over)` : ''}</td>
-                          <td class="px-4 py-2.5 text-xs ${p.nextAction ? '' : 'italic text-haven-danger'}">${p.nextAction ? `<span class="truncate block max-w-[220px]" title="${p.nextAction}">${p.nextAction}</span>` : '— not set —'}</td>
-                          <td class="px-4 py-2.5"><span class="badge badge-neutral">${WAITING_ON_LABELS[p.waitingOn] || '—'}</span></td>
-                        </tr>`;
-                    }).join('')}
+                    ${(() => {
+                      const CAP = 50;
+                      const sorted = rows.slice().sort((a, b) => b.risk - a.risk);
+                      const shown = sorted.slice(0, CAP);
+                      const extra = sorted.length - shown.length;
+                      return shown.map(p => {
+                        const coord = getCoord(p);
+                        const overdue = p.slaStatus === 'breached';
+                        const inst = getInstaller(p);
+                        return `
+                          <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
+                            <td class="px-4 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
+                            <td class="px-4 py-2.5">
+                              <div class="font-medium text-haven-forest">${p.name}</div>
+                              <div class="text-[11px] text-haven-muted">${p.projectNumber}</div>
+                            </td>
+                            <td class="px-4 py-2.5 text-haven-muted">${p.city}, ${p.state}</td>
+                            <td class="px-4 py-2.5 text-xs text-haven-muted">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</td>
+                            <td class="px-4 py-2.5">${avatar(coord, 18)} <span class="text-xs ml-1 align-middle">${coord.split(' ')[0]}</span></td>
+                            <td class="px-4 py-2.5 ${overdue ? 'text-haven-danger font-medium' : ''}">${p.daysInStage}d${overdue ? ` (${p.daysOverdue}d over)` : ''}</td>
+                            <td class="px-4 py-2.5 text-xs ${p.nextAction ? '' : 'italic text-haven-danger'}">${p.nextAction ? `<span class="truncate block max-w-[220px]" title="${p.nextAction}">${p.nextAction}</span>` : '— not set —'}</td>
+                            <td class="px-4 py-2.5"><span class="badge badge-neutral">${WAITING_ON_LABELS[p.waitingOn] || '—'}</span></td>
+                          </tr>`;
+                      }).join('') + (extra > 0 ? `<tr><td colspan="8" class="px-4 py-2 text-center text-xs text-haven-muted bg-haven-bg">Showing top ${CAP} of ${sorted.length} in this sub-bucket · highest risk first</td></tr>` : '');
+                    })()}
                   </tbody>
                 </table>
               `}
@@ -1456,6 +1666,94 @@ function renderPipelineDrilldown() {
 }
 
 window.setPipelineFilter = (f) => { pipelineFilter = f; render(); };
+
+function renderPipelineCompleted() {
+  let list = visibleProjects().filter(p => p.stage === 'completed');
+  if (pipelineStateFilter !== 'all') list = list.filter(p => p.state === pipelineStateFilter);
+  if (pipelineSearch.trim()) {
+    const q = pipelineSearch.trim().toLowerCase();
+    list = list.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.city.toLowerCase().includes(q) ||
+      p.projectNumber.toLowerCase().includes(q) ||
+      p.zip.includes(q)
+    );
+  }
+  // Sort by most recently touched (proxy for recently completed)
+  list.sort((a, b) => a.lastTouchedDaysAgo - b.lastTouchedDaysAgo);
+
+  const totalCount = visibleProjects().filter(p => p.stage !== 'completed' && (pipelineStateFilter === 'all' || p.state === pipelineStateFilter)).length;
+  const readyCount = 0;
+  const atRiskCount = 0;
+  const completedCount = list.length;
+
+  const CAP = 200;
+  const shown = list.slice(0, CAP);
+
+  main.innerHTML = `
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4 gap-4 flex-wrap">
+        <div>
+          <h1 class="font-serif text-2xl font-bold text-haven-forest">Completed Projects</h1>
+          <p class="text-sm text-haven-muted mt-1">${completedCount} completed${pipelineStateFilter !== 'all' ? ` · ${pipelineStateFilter} only` : ''}</p>
+        </div>
+        <div class="flex items-center gap-3">
+          ${renderPipelineSearch()}
+          ${renderPipelineStateToggle()}
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 mb-5 flex-wrap">
+        <button class="filter-chip" onclick="setPipelineFilter('all')">All <span class="opacity-70 ml-1">${totalCount}</span></button>
+        <button class="filter-chip" onclick="setPipelineFilter('ready_to_advance')">✓ Ready to advance</button>
+        <button class="filter-chip" onclick="setPipelineFilter('at_risk')">⚠ At risk</button>
+        <button class="filter-chip active">✓ Completed <span class="opacity-70 ml-1">${completedCount}</span></button>
+        ${pipelineSearch ? `<span class="text-xs text-haven-muted ml-2">${list.length} match${list.length === 1 ? '' : 'es'} for "${pipelineSearch}"</span>` : ''}
+      </div>
+
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-haven-bg border-b border-haven-border">
+            <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
+              <th class="px-3 py-2.5">Project</th>
+              <th class="px-3 py-2.5">Location</th>
+              <th class="px-3 py-2.5">Utility</th>
+              <th class="px-3 py-2.5">System</th>
+              <th class="px-3 py-2.5">Coord</th>
+              <th class="px-3 py-2.5">Installer</th>
+              <th class="px-3 py-2.5">Cycle</th>
+              <th class="px-3 py-2.5">Completed</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${shown.length === 0 ? '<tr><td colspan="8" class="px-4 py-8 text-center text-haven-muted">No completed projects match</td></tr>' : shown.map(p => {
+              const coord = getCoord(p);
+              const inst = getInstaller(p);
+              const cycleColor = p.cycleDays <= 70 ? 'text-haven-ok' : p.cycleDays <= 90 ? 'text-haven-muted' : 'text-haven-warn';
+              return `
+                <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
+                  <td class="px-3 py-2.5">
+                    <div class="font-medium text-haven-forest">${p.name}</div>
+                    <div class="text-[11px] text-haven-muted">${p.projectNumber}</div>
+                  </td>
+                  <td class="px-3 py-2.5 text-haven-muted">${p.city}, ${p.state}</td>
+                  <td class="px-3 py-2.5 text-haven-muted">${p.utility}</td>
+                  <td class="px-3 py-2.5 text-xs text-haven-muted">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</td>
+                  <td class="px-3 py-2.5">${avatar(coord, 18)} <span class="text-xs ml-1 align-middle">${coord.split(' ')[0]}</span></td>
+                  <td class="px-3 py-2.5 text-xs ${inst ? '' : 'italic text-haven-muted'}">${inst ? inst.split(' ')[0] : '—'}</td>
+                  <td class="px-3 py-2.5 font-medium ${cycleColor}">${p.cycleDays || '—'}d</td>
+                  <td class="px-3 py-2.5 text-xs text-haven-muted">${p.lastTouchedDaysAgo}d ago</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        ${list.length > CAP ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${list.length}</div>` : ''}
+      </div>
+    </div>
+  `;
+  attachProjectHandlers();
+  attachPipelineSearchHandler();
+}
 
 function pipelineCard(p) {
   const ready = isReadyToAdvance(p);
@@ -1538,11 +1836,18 @@ const SUB_BUCKETS = {
   ],
 };
 
+// Indexed view of submittals for fast lookup in hot render loops
+const SUBMITTALS_BY_PROJECT = {};
+SUBMITTALS.forEach(s => {
+  if (!SUBMITTALS_BY_PROJECT[s.projectId]) SUBMITTALS_BY_PROJECT[s.projectId] = [];
+  SUBMITTALS_BY_PROJECT[s.projectId].push(s);
+});
+
 function subBucketForProject(p) {
   // Returns the sub-bucket key for p within its current stage.
   const stage = p.stage;
   const d = INSTALLER_PROJECT_DATA[p.id] || {};
-  const projSubs = SUBMITTALS.filter(s => s.projectId === p.id);
+  const projSubs = SUBMITTALS_BY_PROJECT[p.id] || [];
 
   if (stage === 'site_survey') {
     // Use waitingOn + days in stage as a rough signal
@@ -1692,7 +1997,17 @@ function handleStageMove(p, newStage) {
 // PROJECTS LIST
 // ============================================================
 function renderProjects() {
-  const list = visibleProjects();
+  const fullList = visibleProjects();
+  // Sort: active first (by risk descending), then completed (recent first)
+  const sorted = fullList.slice().sort((a, b) => {
+    const aActive = a.stage !== 'completed';
+    const bActive = b.stage !== 'completed';
+    if (aActive !== bActive) return aActive ? -1 : 1;
+    if (aActive) return b.risk - a.risk;
+    return a.lastTouchedDaysAgo - b.lastTouchedDaysAgo;
+  });
+  const CAP = 200;
+  const list = sorted.slice(0, CAP);
   const rows = list.map(p => {
     const ready = isReadyToAdvance(p);
     const slaBadge = p.stage === 'completed' ? '<span class="badge badge-neutral">completed</span>'
@@ -1721,7 +2036,7 @@ function renderProjects() {
     <div class="p-6">
       <div class="mb-6">
         <h1 class="font-serif text-2xl font-bold text-haven-forest">Projects</h1>
-        <p class="text-sm text-haven-muted mt-1">${currentCoord === '__all__' ? 'All coordinators' : currentCoord} · ${list.length} total</p>
+        <p class="text-sm text-haven-muted mt-1">${currentCoord === '__all__' ? 'All coordinators' : currentCoord} · ${fullList.length} total (${fullList.filter(p => p.stage !== 'completed').length} active, ${fullList.filter(p => p.stage === 'completed').length} completed)</p>
       </div>
       <div class="card p-0 overflow-hidden">
         <table class="w-full text-sm">
@@ -1734,6 +2049,7 @@ function renderProjects() {
           </thead>
           <tbody>${rows}</tbody>
         </table>
+        ${fullList.length > CAP ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${fullList.length} — highest risk and most recent first</div>` : ''}
       </div>
     </div>
   `;
@@ -1785,7 +2101,9 @@ function renderTasks(installerOnly) {
       </div>
     `).join('');
   } else {
-    const sorted = [...tasks].sort((a, b) => a.dueInDays - b.dueInDays);
+    const CAP = 200;
+    const allSorted = [...tasks].sort((a, b) => a.dueInDays - b.dueInDays);
+    const sorted = allSorted.slice(0, CAP);
     bodyHtml = `
       <table class="w-full text-sm">
         <thead class="bg-haven-bg border-b border-haven-border">
@@ -1814,7 +2132,8 @@ function renderTasks(installerOnly) {
               <td class="px-4 py-2.5 ${overdue && !done ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${dueText}</td>
             </tr>`;
         }).join('')}</tbody>
-      </table>`;
+      </table>
+      ${allSorted.length > CAP ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${allSorted.length} — most urgent first</div>` : ''}`;
   }
 
   main.innerHTML = `
@@ -2729,9 +3048,10 @@ function classifyThread(project, messages) {
 function renderInbox(installerOnly) {
   const visible = visibleProjects();
 
-  // Build threads: one per project
+  // Build threads: one per project. Skip completed projects (their inboxes are quiet).
   const threads = [];
   visible.forEach(p => {
+    if (p.stage === 'completed') return;
     if (installerOnly && p.installer !== CURRENT_INSTALLER) return;
     const messages = buildEmails(p);
     if (messages.length === 0) return;
@@ -2885,7 +3205,13 @@ function renderInbox(installerOnly) {
             <div class="text-haven-muted mb-2">${q ? `No results for "${inboxSearch}"` : 'Nothing to show'}</div>
             ${q ? `<button class="text-xs text-haven-forest hover:underline" onclick="clearInboxSearch()">Clear search</button>` : ''}
           </div>
-        ` : filtered.map(threadRow).join('')}
+        ` : (() => {
+            const CAP = 200;
+            const shown = filtered.slice(0, CAP);
+            const extra = filtered.length - shown.length;
+            return shown.map(threadRow).join('') +
+              (extra > 0 ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${filtered.length} — prioritized by action needed</div>` : '');
+          })()}
       </div>
     </div>`;
 
@@ -3265,75 +3591,144 @@ window.toggleBICGroup = (k) => {
 // ============================================================
 // POST-INSTALL VIEW — per-project milestone tracker
 // ============================================================
-let postInstallMilestoneFilter = 'all'; // all | no_inspection | no_pto_submitted | no_pto | no_icf
 let postInstallSearch = '';
+let postInstallSort = { col: 'days', dir: 'desc' };
+let postInstallFilters = {
+  utility: null,       // null = all, or specific utility string
+  coord: null,
+  waiting_on: null,    // ball-in-court group key
+  inspection: null,    // null | 'done' | 'not_done'
+  pto_sub: null,
+  pto_done: null,
+  icf: null,
+};
+let postInstallOpenFilter = null; // column key currently showing its filter dropdown
 
 function renderPostInstall() {
   let recs = POST_INSTALL.records.filter(r => !r.icfComplete);
 
-  if (postInstallMilestoneFilter === 'no_inspection') recs = recs.filter(r => !r.inspectionComplete);
-  else if (postInstallMilestoneFilter === 'no_pto_submitted') recs = recs.filter(r => r.inspectionComplete && !r.ptoSubmitted);
-  else if (postInstallMilestoneFilter === 'no_pto') recs = recs.filter(r => r.ptoSubmitted && !r.ptoComplete);
-  else if (postInstallMilestoneFilter === 'no_icf') recs = recs.filter(r => r.ptoComplete && !r.icfComplete);
+  // Apply milestone column filters
+  if (postInstallFilters.inspection === 'done') recs = recs.filter(r => r.inspectionComplete);
+  else if (postInstallFilters.inspection === 'not_done') recs = recs.filter(r => !r.inspectionComplete);
+  if (postInstallFilters.pto_sub === 'done') recs = recs.filter(r => r.ptoSubmitted);
+  else if (postInstallFilters.pto_sub === 'not_done') recs = recs.filter(r => !r.ptoSubmitted);
+  if (postInstallFilters.pto_done === 'done') recs = recs.filter(r => r.ptoComplete);
+  else if (postInstallFilters.pto_done === 'not_done') recs = recs.filter(r => !r.ptoComplete);
+  if (postInstallFilters.icf === 'done') recs = recs.filter(r => r.icfComplete);
+  else if (postInstallFilters.icf === 'not_done') recs = recs.filter(r => !r.icfComplete);
+  if (postInstallFilters.utility) recs = recs.filter(r => r.utility === postInstallFilters.utility);
+  if (postInstallFilters.coord) recs = recs.filter(r => r.coord === postInstallFilters.coord);
+  if (postInstallFilters.waiting_on) recs = recs.filter(r => r.ballInCourt && r.ballInCourt.group === postInstallFilters.waiting_on);
 
+  // Search
   if (postInstallSearch) {
     const q = postInstallSearch.toLowerCase();
     recs = recs.filter(r => r.name.toLowerCase().includes(q) || r.city.toLowerCase().includes(q) || r.projectNumber.toLowerCase().includes(q));
   }
 
-  // Sort: longest in hold first
-  recs.sort((a, b) => (b.ballInCourt?.daysInHold || 0) - (a.ballInCourt?.daysInHold || 0));
-
-  const allPostInstall = POST_INSTALL.records.filter(r => !r.icfComplete);
-  const counts = {
-    all: allPostInstall.length,
-    no_inspection: allPostInstall.filter(r => !r.inspectionComplete).length,
-    no_pto_submitted: allPostInstall.filter(r => r.inspectionComplete && !r.ptoSubmitted).length,
-    no_pto: allPostInstall.filter(r => r.ptoSubmitted && !r.ptoComplete).length,
-    no_icf: allPostInstall.filter(r => r.ptoComplete && !r.icfComplete).length,
+  // Sort
+  const sortAccessor = {
+    project: r => r.name.toLowerCase(),
+    location: r => r.city.toLowerCase(),
+    utility: r => r.utility,
+    coord: r => r.coord,
+    installed: r => r.installDaysAgo,
+    inspection: r => r.inspectionComplete ? 1 : 0,
+    pto_sub: r => r.ptoSubmitted ? 1 : 0,
+    pto_done: r => r.ptoComplete ? 1 : 0,
+    icf: r => r.icfComplete ? 1 : 0,
+    waiting_on: r => r.ballInCourt ? r.ballInCourt.group : 'zzz',
+    days: r => r.ballInCourt?.daysInHold || 0,
   };
+  const acc = sortAccessor[postInstallSort.col] || sortAccessor.days;
+  const dir = postInstallSort.dir === 'asc' ? 1 : -1;
+  recs.sort((a, b) => {
+    const av = acc(a), bv = acc(b);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+
+  // Totals for header bar
+  const activeFilterCount = Object.values(postInstallFilters).filter(v => v !== null).length;
 
   const mcell = (done) => done
     ? '<div class="w-6 h-6 rounded-full flex items-center justify-center" style="background:#2F7A3E; color:white; font-size:12px;">✓</div>'
     : '<div class="w-6 h-6 rounded-full border-2 border-haven-border bg-white"></div>';
 
-  const chip = (key, label, count) => `
-    <button class="filter-chip ${postInstallMilestoneFilter === key ? 'active' : ''}" onclick="setPIFilter('${key}')">
-      ${label} <span class="opacity-70 ml-1">${count}</span>
-    </button>`;
+  // Unique values for filter dropdowns (from all post-install records, not just filtered)
+  const allOpen = POST_INSTALL.records.filter(r => !r.icfComplete);
+  const utilities = [...new Set(allOpen.map(r => r.utility))].sort();
+  const coords = [...new Set(allOpen.map(r => r.coord))].sort();
+  const waitingGroups = Object.keys(BALL_IN_COURT_GROUPS);
+
+  // Header renderer — supports sort and (optionally) a filter menu
+  function th(key, label, opts = {}) {
+    const { align = 'left', sortable = true, filterOptions = null } = opts;
+    const isSorted = postInstallSort.col === key;
+    const sortIcon = isSorted ? (postInstallSort.dir === 'asc' ? '↑' : '↓') : '<span style="color:#C4C4C0">↕</span>';
+    const filterValue = postInstallFilters[key];
+    const hasFilter = filterValue !== null && filterValue !== undefined;
+    const filterBadge = hasFilter ? `<span class="inline-block w-1.5 h-1.5 rounded-full bg-haven-forest ml-1"></span>` : '';
+    const alignClass = align === 'center' ? 'text-center' : 'text-left';
+
+    return `
+      <th class="px-3 py-2.5 ${alignClass} relative select-none" style="user-select:none;">
+        <div class="flex items-center gap-1 ${align === 'center' ? 'justify-center' : ''}">
+          ${sortable ? `<button class="uppercase tracking-wide text-xs text-haven-muted hover:text-haven-forest flex items-center gap-1" onclick="togglePISort('${key}')">${label} ${sortIcon}</button>` : `<span class="uppercase tracking-wide text-xs text-haven-muted">${label}</span>`}
+          ${filterOptions ? `
+            <button class="text-haven-muted hover:text-haven-forest px-1" onclick="togglePIFilterMenu('${key}')">
+              <svg class="w-3 h-3 inline" fill="${hasFilter ? '#013300' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+              ${filterBadge}
+            </button>
+            ${postInstallOpenFilter === key ? `
+              <div class="absolute z-20 mt-1 bg-white border border-haven-border rounded-md shadow-lg py-1 text-sm text-left" style="top:100%; ${align === 'center' ? 'left:50%; transform:translateX(-50%);' : 'left:0;'} min-width:180px;">
+                <button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${filterValue === null ? 'font-semibold text-haven-forest' : ''}" onclick="setPIFilter('${key}', null)">All</button>
+                ${filterOptions.map(opt => `<button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${filterValue === opt.value ? 'font-semibold text-haven-forest' : ''}" onclick="setPIFilter('${key}', '${opt.value}')">${opt.label}</button>`).join('')}
+              </div>
+            ` : ''}
+          ` : ''}
+        </div>
+      </th>`;
+  }
 
   main.innerHTML = `
     <div class="p-6 max-w-[1400px]">
-      <div class="mb-5">
-        <h1 class="font-serif text-2xl font-bold text-haven-forest">Post-Install</h1>
-        <p class="text-sm text-haven-muted mt-1">Every project that's been installed and its milestone status · ${recs.length} shown</p>
+      <div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
+        <div>
+          <h1 class="font-serif text-2xl font-bold text-haven-forest">Post-Install</h1>
+          <p class="text-sm text-haven-muted mt-1">
+            Every project that's been installed and its milestone status · ${recs.length} shown
+            ${activeFilterCount > 0 ? ` · <button class="text-haven-forest hover:underline" onclick="clearAllPIFilters()">Clear ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}</button>` : ''}
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="relative">
+            <input type="text" id="piSearch" placeholder="Search name, city, project #..." value="${postInstallSearch.replace(/"/g, '&quot;')}"
+              class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-64" />
+            <svg class="absolute left-2.5 top-2 w-4 h-4 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            ${postInstallSearch ? `<button onclick="clearPISearch()" class="absolute right-2 top-2 text-haven-muted hover:text-haven-ink text-sm">×</button>` : ''}
+          </div>
+        </div>
       </div>
 
-      <div class="flex items-center gap-2 mb-4 flex-wrap">
-        ${chip('all', 'All open', counts.all)}
-        ${chip('no_inspection', 'No inspection', counts.no_inspection)}
-        ${chip('no_pto_submitted', 'No PTO submitted', counts.no_pto_submitted)}
-        ${chip('no_pto', 'No PTO', counts.no_pto)}
-        ${chip('no_icf', 'No ICF', counts.no_icf)}
-        <div class="flex-1"></div>
-        <input type="text" id="piSearch" placeholder="Search name, city, project #…" value="${postInstallSearch}" class="px-3 py-1.5 border border-haven-border rounded-md text-sm bg-white w-64" />
-      </div>
-
-      <div class="card p-0 overflow-hidden">
+      <div class="card p-0 overflow-visible">
         <table class="w-full text-sm">
           <thead class="bg-haven-bg border-b border-haven-border">
-            <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
-              <th class="px-3 py-2.5">Project</th>
-              <th class="px-3 py-2.5">Location</th>
-              <th class="px-3 py-2.5">Utility</th>
-              <th class="px-3 py-2.5">Coord</th>
-              <th class="px-3 py-2.5">Installed</th>
-              <th class="px-3 py-2.5 text-center">Inspection</th>
-              <th class="px-3 py-2.5 text-center">PTO Sub</th>
-              <th class="px-3 py-2.5 text-center">PTO Done</th>
-              <th class="px-3 py-2.5 text-center">ICF</th>
-              <th class="px-3 py-2.5">Waiting on</th>
-              <th class="px-3 py-2.5">Days in hold</th>
+            <tr>
+              ${th('project', 'Project')}
+              ${th('location', 'Location')}
+              ${th('utility', 'Utility', { filterOptions: utilities.map(u => ({ label: u, value: u })) })}
+              ${th('coord', 'Coord', { filterOptions: coords.map(c => ({ label: c.split(' ')[0], value: c })) })}
+              ${th('installed', 'Installed')}
+              ${th('inspection', 'Inspection', { align: 'center', filterOptions: [{ label: 'Complete', value: 'done' }, { label: 'Not complete', value: 'not_done' }] })}
+              ${th('pto_sub', 'PTO Sub', { align: 'center', filterOptions: [{ label: 'Submitted', value: 'done' }, { label: 'Not submitted', value: 'not_done' }] })}
+              ${th('pto_done', 'PTO Done', { align: 'center', filterOptions: [{ label: 'Complete', value: 'done' }, { label: 'Not complete', value: 'not_done' }] })}
+              ${th('icf', 'ICF', { align: 'center', filterOptions: [{ label: 'Complete', value: 'done' }, { label: 'Not complete', value: 'not_done' }] })}
+              ${th('waiting_on', 'Waiting on', { filterOptions: waitingGroups.map(g => ({ label: BALL_IN_COURT_GROUPS[g].label, value: g })) })}
+              ${th('days', 'Days in hold')}
             </tr>
           </thead>
           <tbody>
@@ -3379,32 +3774,49 @@ function renderPostInstall() {
   if (s) {
     s.addEventListener('input', (e) => { postInstallSearch = e.target.value; render(); setTimeout(() => { const el = document.getElementById('piSearch'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }, 0); });
   }
+
+  // Close filter dropdown on outside click
+  setTimeout(() => {
+    const handler = (e) => {
+      if (postInstallOpenFilter && !e.target.closest('button')) {
+        postInstallOpenFilter = null;
+        document.removeEventListener('click', handler);
+        render();
+      }
+    };
+    if (postInstallOpenFilter) document.addEventListener('click', handler);
+  }, 0);
 }
 
-window.setPIFilter = (k) => { postInstallMilestoneFilter = k; render(); };
+window.togglePISort = (col) => {
+  if (postInstallSort.col === col) {
+    postInstallSort.dir = postInstallSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    postInstallSort = { col, dir: 'desc' };
+  }
+  render();
+};
+window.togglePIFilterMenu = (col) => {
+  postInstallOpenFilter = postInstallOpenFilter === col ? null : col;
+  render();
+};
+window.setPIFilter = (col, value) => {
+  postInstallFilters[col] = value;
+  postInstallOpenFilter = null;
+  render();
+};
+window.clearAllPIFilters = () => {
+  Object.keys(postInstallFilters).forEach(k => postInstallFilters[k] = null);
+  postInstallSearch = '';
+  render();
+};
+window.clearPISearch = () => { postInstallSearch = ''; render(); };
 
 // ============================================================
 // METRICS — cycle time + post-install + coordinator load
 // ============================================================
 function renderMetrics() {
   const active = PROJECTS.filter(p => p.stage !== 'completed');
-  const completed = PROJECTS.filter(p => p.stage === 'completed');
-  const overdue = active.filter(p => p.slaStatus === 'breached');
-  const avgCycle = completed.length ? Math.round(completed.reduce((a, p) => a + (p.cycleDays || 0), 0) / completed.length) : 0;
-  const atRisk = active.filter(p => p.riskLevel === 'high');
-  const noAction = active.filter(p => !p.nextAction);
-
-  // Stage averages (demo data)
-  const stageAvgs = STAGE_ORDER.map(stage => {
-    const durations = COMPLETED_STAGE_DURATIONS[stage] || [];
-    const avg = durations.length ? Math.round(durations.reduce((a,b)=>a+b,0) / durations.length) : 0;
-    const target = STAGE_TARGETS_CA[stage];
-    return { stage, avg, target, variance: avg - target };
-  });
-  const totalCycle = stageAvgs.reduce((a, s) => a + s.avg, 0);
-  const handoffSum = COMPLETED_STAGE_DURATIONS.handoff_gaps.reduce((a, b) => a + b, 0);
-
-  // Post-install data is computed in buildPostInstallRecords() below
 
   // Coord health
   const coordHealth = COORDINATORS.map(c => {
@@ -3418,153 +3830,12 @@ function renderMetrics() {
     };
   });
 
-  const stat = (label, value, tone) => `
-    <div class="card"><div class="text-xs text-haven-muted uppercase tracking-wide">${label}</div>
-    <div class="font-serif font-bold text-2xl mt-1 ${tone === 'danger' ? 'text-haven-danger' : tone === 'ok' ? 'text-haven-ok' : 'text-haven-forest'}">${value}</div></div>`;
-
   main.innerHTML = `
     <div class="p-6 max-w-6xl">
       <div class="mb-6">
         <h1 class="font-serif text-2xl font-bold text-haven-forest">Metrics</h1>
-        <p class="text-sm text-haven-muted mt-1">Cycle time, post-install tracking, and coordinator load</p>
+        <p class="text-sm text-haven-muted mt-1">Post-install tracking and coordinator load</p>
       </div>
-
-      <div class="grid grid-cols-4 gap-4 mb-6">
-        ${stat('Active', active.length)}
-        ${stat('At Risk', atRisk.length, atRisk.length > 0 ? 'danger' : 'ok')}
-        ${stat('Past SLA', overdue.length, overdue.length > 0 ? 'danger' : undefined)}
-        ${stat('Avg Cycle', avgCycle + 'd')}
-      </div>
-
-      <div class="card mb-6">
-        <h2 class="font-serif font-bold text-haven-forest mb-1">Cycle time anatomy</h2>
-        <p class="text-xs text-haven-muted mb-5">A typical project from site survey to rebate, based on completed work. Each segment is a stage; thin dark slivers between them are handoff gaps.</p>
-
-        ${(() => {
-          const totalAll = totalCycle + handoffSum;
-          const STAGE_COLORS = {
-            site_survey: '#7A9A7A',
-            design: '#4A6A8A',
-            permitting: '#C44545',
-            scheduling: '#8E4A9C',
-            installation: '#2F7A3E',
-            inspection: '#C5843A',
-            interconnection: '#3A6EA8',
-            rebate: '#1F7A8C',
-          };
-
-          // Build the stacked strip
-          const segments = [];
-          stageAvgs.forEach((s, i) => {
-            segments.push({ type: 'stage', stage: s.stage, days: s.avg, label: STAGE_LABELS[s.stage], color: STAGE_COLORS[s.stage], variance: s.variance });
-            if (i < stageAvgs.length - 1) {
-              const gap = COMPLETED_STAGE_DURATIONS.handoff_gaps[i];
-              if (gap > 0) segments.push({ type: 'handoff', days: gap, color: '#1A1F1A' });
-            }
-          });
-
-          return `
-            <div class="mb-4">
-              <div class="flex w-full rounded-md overflow-hidden" style="height: 48px; border: 1px solid #E4E6E0;">
-                ${segments.map(seg => {
-                  const pct = (seg.days / totalAll) * 100;
-                  if (seg.type === 'handoff') {
-                    return `<div style="width:${pct}%; background:${seg.color}; min-width:3px;" title="Handoff gap · ${seg.days}d"></div>`;
-                  }
-                  const narrow = pct < 6;
-                  return `<div class="flex items-center justify-center text-white font-medium text-xs" style="width:${pct}%; background:${seg.color};" title="${seg.label} · ${seg.days}d">${narrow ? seg.days : `${seg.days}d`}</div>`;
-                }).join('')}
-              </div>
-              <div class="flex w-full mt-1.5" style="font-size:10px;">
-                ${segments.map(seg => {
-                  const pct = (seg.days / totalAll) * 100;
-                  if (seg.type === 'handoff') return `<div style="width:${pct}%;"></div>`;
-                  return `<div class="text-center text-haven-muted uppercase tracking-wide truncate" style="width:${pct}%; padding:0 2px;">${seg.label}</div>`;
-                }).join('')}
-              </div>
-            </div>
-
-            <div class="flex items-baseline justify-between pt-3 border-t border-haven-border">
-              <div class="flex items-center gap-6 text-sm">
-                <div><span class="text-haven-muted">Stage work</span> <span class="font-semibold ml-1">${totalCycle}d</span> <span class="text-haven-muted text-xs">(${Math.round(totalCycle/totalAll*100)}%)</span></div>
-                <div><span class="text-haven-muted">Handoff gaps</span> <span class="font-semibold ml-1" style="color:#1A1F1A">${handoffSum}d</span> <span class="text-haven-muted text-xs">(${Math.round(handoffSum/totalAll*100)}%)</span></div>
-              </div>
-              <div class="text-sm"><span class="text-haven-muted">Total cycle</span> <span class="font-serif font-bold text-lg text-haven-forest ml-1">${totalAll}d</span></div>
-            </div>
-          `;
-        })()}
-      </div>
-
-      ${(() => {
-        // Biggest leaks: rank by variance (days over target), filter to positive variance
-        const leaks = stageAvgs
-          .map(s => ({ ...s, label: STAGE_LABELS[s.stage] }))
-          .filter(s => s.variance > 0)
-          .sort((a, b) => b.variance - a.variance);
-
-        if (leaks.length === 0) return `
-          <div class="card mb-6">
-            <h2 class="font-serif font-bold text-haven-forest mb-1">Biggest leaks</h2>
-            <p class="text-sm text-haven-ok mt-2">No stages are running over target. Nice.</p>
-          </div>
-        `;
-
-        const maxVariance = Math.max(...leaks.map(s => s.variance));
-        return `
-          <div class="card mb-6">
-            <h2 class="font-serif font-bold text-haven-forest mb-1">Biggest leaks</h2>
-            <p class="text-xs text-haven-muted mb-4">Stages running over target, ranked by days over. Fixing the top one has the biggest cycle-time impact.</p>
-            <div class="space-y-3">
-              ${leaks.map((s, idx) => {
-                const barPct = (s.variance / maxVariance) * 100;
-                const overPct = Math.round((s.variance / s.target) * 100);
-                const tone = s.variance >= maxVariance * 0.7 ? 'danger' : s.variance >= maxVariance * 0.4 ? 'warn' : 'neutral';
-                const toneColor = tone === 'danger' ? '#C44545' : tone === 'warn' ? '#E0A83A' : '#6B7568';
-                return `
-                  <div>
-                    <div class="flex items-baseline justify-between mb-1.5">
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs text-haven-muted tabular-nums w-4">#${idx + 1}</span>
-                        <span class="font-medium">${s.label}</span>
-                      </div>
-                      <div class="text-sm tabular-nums">
-                        <span class="font-semibold" style="color:${toneColor}">+${s.variance}d over</span>
-                        <span class="text-haven-muted ml-3">${s.avg}d actual vs ${s.target}d target</span>
-                      </div>
-                    </div>
-                    <div class="relative h-2 rounded-full" style="background:#E4E6E0;">
-                      <div class="absolute left-0 top-0 h-full rounded-full" style="width:${barPct}%; background:${toneColor};"></div>
-                    </div>
-                    <div class="text-xs text-haven-muted mt-1">
-                      ${overPct}% over target ·
-                      ${idx === 0 ? `Top priority — reducing this stage by half cuts ${Math.ceil(s.variance / 2)}d from every project` : `Fixing this saves ${s.variance}d per project`}
-                    </div>
-                  </div>`;
-              }).join('')}
-            </div>
-          </div>
-        `;
-      })()}
-
-      ${handoffSum >= 7 ? `
-        <div class="card mb-6" style="background: #FAFAF7; border-left: 4px solid #1A1F1A;">
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex-1">
-              <div class="flex items-center gap-2 mb-1">
-                <h2 class="font-serif font-bold text-haven-forest">${handoffSum} days per project lost to handoffs</h2>
-              </div>
-              <p class="text-sm text-haven-muted mb-2">Time between when one stage finishes and the next one actually starts. Pure coordination waste — no process improvement needed, just tighter handoffs.</p>
-              <div class="text-sm text-haven-ink">
-                At <span class="font-semibold">${completed.length || 30}+</span> projects per year, that's roughly <span class="font-semibold text-haven-forest">${Math.round((handoffSum * (completed.length || 30)) / 30)} installer-days</span> of project time reclaimed if handoffs drop to zero.
-              </div>
-            </div>
-            <div class="text-right shrink-0">
-              <div class="font-serif font-bold text-4xl text-haven-forest">${handoffSum}d</div>
-              <div class="text-xs text-haven-muted uppercase tracking-wider">per project</div>
-            </div>
-          </div>
-        </div>
-      ` : ''}
 
       ${renderBallInCourt()}
 
@@ -3587,6 +3858,116 @@ function renderMetrics() {
               </tr>`).join('')}
           </tbody>
         </table>
+      </div>
+    </div>
+  `;
+}
+
+
+// ============================================================
+// MONTHLY STATS — bar charts for installs/inspections/PTO/ICF
+// ============================================================
+function renderMonthlyStats() {
+  // Take last 6 months of POST_INSTALL cohorts, most recent on the right
+  const months = POST_INSTALL.months.slice(-6);
+
+  // Per-month counts. "Installs" = cohort size. Inspections, PTO submitted, PTO approved, ICF submitted/approved derived.
+  // ICF Resubmitted is synthesized — cases where a cohort's ICFs bounce back and need rework.
+  const seriesData = months.map(m => {
+    const cohort = POST_INSTALL.records.filter(r => r.installMonth === m.label);
+    const total = cohort.length;
+    const inspections = cohort.filter(r => r.inspectionComplete).length;
+    const ptoSub = cohort.filter(r => r.ptoSubmitted).length;
+    const ptoApproved = cohort.filter(r => r.ptoComplete).length;
+    const icfSubmitted = Math.round(ptoApproved * 0.75);
+    // Demo-value resubmits — higher for recent cohorts to reflect backlog
+    const monthIdx = months.indexOf(m);
+    const resubmitFactor = [0.1, 0.5, 0.5, 0.35, 0.4, 1.2][monthIdx] || 0.3;
+    const icfResubmitted = Math.round(icfSubmitted * resubmitFactor);
+    const icfApproved = cohort.filter(r => r.icfComplete).length;
+
+    return {
+      month: m.label,
+      installs: total,
+      inspections,
+      ptoSub,
+      ptoApproved,
+      icfSubmitted,
+      icfResubmitted,
+      icfApproved,
+    };
+  });
+
+  // Chart renderer — takes series data + a color + a series key and renders a light-theme bar chart
+  function barChart(title, seriesKey, color) {
+    const values = seriesData.map(d => d[seriesKey]);
+    const max = Math.max(1, ...values);
+    // Y axis: 5 tick marks, rounded up to a nice number
+    const yMax = Math.ceil(max / 10) * 10 || 10;
+    const yTicks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map(v => Math.round(v));
+
+    return `
+      <div class="card">
+        <h3 class="font-serif font-bold text-lg mb-4" style="color:${color};">${title}</h3>
+        <div class="flex" style="height:220px;">
+          <div class="flex flex-col justify-between text-right pr-2 text-[11px] text-haven-muted tabular-nums" style="width:30px;">
+            ${yTicks.slice().reverse().map(t => `<div>${t}</div>`).join('')}
+          </div>
+          <div class="flex-1 relative" style="border-left: 1px solid #E4E6E0; border-bottom: 1px solid #E4E6E0;">
+            <!-- grid lines -->
+            ${yTicks.slice(1, -1).map((t, i) => {
+              const pct = 100 - ((t / yMax) * 100);
+              return `<div class="absolute left-0 right-0" style="top:${pct}%; border-top: 1px dashed #EFEFE8;"></div>`;
+            }).join('')}
+            <!-- bars -->
+            <div class="absolute inset-0 flex items-end justify-around px-2 gap-2">
+              ${seriesData.map(d => {
+                const v = d[seriesKey];
+                const heightPct = (v / yMax) * 100;
+                return `
+                  <div class="flex flex-col items-center justify-end flex-1 h-full relative group">
+                    <div class="absolute text-[12px] font-bold tabular-nums" style="bottom:${heightPct}%; margin-bottom:2px; color:${color};">${v}</div>
+                    <div class="w-full rounded-t-sm transition-opacity hover:opacity-80" style="background:${color}; height:${heightPct}%; min-height:1px;" title="${d.month}: ${v}"></div>
+                  </div>`;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="flex pl-[30px] mt-2">
+          <div class="flex-1 flex justify-around px-2 gap-2">
+            ${seriesData.map(d => {
+              // Convert "Nov 2025" -> "Nov '25"
+              const [mon, yr] = d.month.split(' ');
+              const shortYr = yr.slice(-2);
+              return `<div class="flex-1 text-center text-[11px] text-haven-muted">${mon} '${shortYr}</div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  main.innerHTML = `
+    <div class="p-6 max-w-[1400px]">
+      <div class="mb-6">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Monthly Stats</h1>
+        <p class="text-sm text-haven-muted mt-1">Volume by milestone across the last ${months.length} months</p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        ${barChart('Installs', 'installs', '#2F7A3E')}
+        ${barChart('Inspections', 'inspections', '#D84A7A')}
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        ${barChart('PTO Submitted', 'ptoSub', '#E07A3A')}
+        ${barChart('PTO Approved', 'ptoApproved', '#3A8EA8')}
+      </div>
+
+      <div class="grid grid-cols-3 gap-4">
+        ${barChart('ICF Submitted', 'icfSubmitted', '#3A6EA8')}
+        ${barChart('ICF Resubmitted', 'icfResubmitted', '#C5843A')}
+        ${barChart('ICF Approved', 'icfApproved', '#2F7A3E')}
       </div>
     </div>
   `;
