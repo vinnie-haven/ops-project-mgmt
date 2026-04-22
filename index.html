@@ -634,6 +634,158 @@ PROJECTS.forEach(p => {
 });
 
 // ============================================================
+// BLOCKERS — a first-class concept distinct from stage
+// ============================================================
+// A blocker is "what is actually holding this project up right now." Projects can have
+// multiple open blockers. Stage tells you WHERE in pipeline; blocker tells you WHAT's stuck.
+const BLOCKER_CATALOG = {
+  // Customer-owned
+  hoa_letter_missing: { category: 'customer', label: 'HOA letter missing', defaultResolution: 'Customer to submit HOA approval letter', expectedResolutionDays: 7 },
+  customer_unresponsive: { category: 'customer', label: 'Customer unresponsive', defaultResolution: 'Escalate via text/call, 3-touch sequence', expectedResolutionDays: 14 },
+  financing_pending: { category: 'customer', label: 'Financing approval pending', defaultResolution: 'Follow up with lender; get approval doc', expectedResolutionDays: 10 },
+  customer_design_rejected: { category: 'customer', label: 'Customer rejected design', defaultResolution: 'Rework design, schedule review call', expectedResolutionDays: 7 },
+  access_issue: { category: 'customer', label: 'Site access issue', defaultResolution: 'Coordinate gate code / dog / lockbox details', expectedResolutionDays: 5 },
+
+  // AHJ-owned
+  ahj_corrections_pending: { category: 'ahj', label: 'AHJ corrections requested', defaultResolution: 'Revise drawings, resubmit to AHJ', expectedResolutionDays: 10 },
+  ahj_review_stalled: { category: 'ahj', label: 'AHJ review stalled', defaultResolution: 'Escalate to AHJ plan reviewer supervisor', expectedResolutionDays: 14 },
+  inspection_failed: { category: 'ahj', label: 'Inspection failed', defaultResolution: 'Address inspector items, reschedule', expectedResolutionDays: 7 },
+  ahj_fee_unpaid: { category: 'ahj', label: 'AHJ fee unpaid', defaultResolution: 'Pay permit fee via portal', expectedResolutionDays: 3 },
+
+  // Utility-owned
+  utility_pto_delay: { category: 'utility', label: 'Utility PTO delayed', defaultResolution: 'Call utility rep, escalate to liaison', expectedResolutionDays: 30 },
+  utility_clarification: { category: 'utility', label: 'Utility asked for clarification', defaultResolution: 'Respond to utility clarification request', expectedResolutionDays: 5 },
+  interconnection_denied: { category: 'utility', label: 'Interconnection app denied', defaultResolution: 'Review denial reason, revise, resubmit', expectedResolutionDays: 21 },
+  meter_collar_needed: { category: 'utility', label: 'Meter collar needed', defaultResolution: 'Order meter collar from utility', expectedResolutionDays: 14 },
+
+  // Installer-owned
+  installer_not_accepting: { category: 'installer', label: 'Installer not accepting WO', defaultResolution: 'Reassign to fallback installer', expectedResolutionDays: 3 },
+  installer_reschedule: { category: 'installer', label: 'Installer rescheduled', defaultResolution: 'Reconfirm new install date', expectedResolutionDays: 5 },
+  equipment_backorder: { category: 'installer', label: 'Equipment backorder', defaultResolution: 'Source alternate equipment or delay install', expectedResolutionDays: 14 },
+  installer_photos_missing: { category: 'installer', label: 'Install photos missing', defaultResolution: 'Follow up with installer for photo upload', expectedResolutionDays: 3 },
+
+  // Internal
+  design_queue: { category: 'internal', label: 'Awaiting design capacity', defaultResolution: 'Assign to designer', expectedResolutionDays: 3 },
+  survey_review_pending: { category: 'internal', label: 'Survey report under review', defaultResolution: 'Complete survey review, flag issues', expectedResolutionDays: 2 },
+  docs_missing: { category: 'internal', label: 'Internal docs incomplete', defaultResolution: 'Chase missing docs from contract packet', expectedResolutionDays: 5 },
+};
+
+const BLOCKER_CATEGORY_COLORS = {
+  customer: '#8E4A9C',   // purple
+  ahj: '#C44545',        // red
+  utility: '#3A6EA8',    // blue
+  installer: '#C5843A',  // orange
+  internal: '#6B7568',   // gray
+};
+
+const BLOCKER_CATEGORY_LABELS = {
+  customer: 'Customer',
+  ahj: 'AHJ',
+  utility: 'Utility',
+  installer: 'Installer',
+  internal: 'Internal',
+};
+
+const BLOCKERS = [];
+let blockerId = 1;
+
+function pushBlocker(projectId, code, openedDaysAgo, customResolution, openedBy) {
+  const def = BLOCKER_CATALOG[code];
+  if (!def) return;
+  BLOCKERS.push({
+    id: `bl${blockerId++}`,
+    projectId,
+    code,
+    category: def.category,
+    label: def.label,
+    resolution: customResolution || def.defaultResolution,
+    expectedResolutionDays: def.expectedResolutionDays,
+    openedDaysAgo,
+    openedBy: openedBy || 'Shane Brennan',
+    resolvedAt: null,
+  });
+}
+
+// Seed blockers on ~25% of active projects, weighted toward at-risk projects and certain stages
+(function seedBlockers() {
+  let seed = 13417;
+  const rand = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+
+  // Blocker codes most relevant per stage
+  const stageBlockerPool = {
+    site_survey: ['customer_unresponsive', 'access_issue', 'survey_review_pending'],
+    design: ['customer_design_rejected', 'design_queue', 'docs_missing', 'customer_unresponsive'],
+    permitting: ['ahj_corrections_pending', 'ahj_review_stalled', 'ahj_fee_unpaid', 'hoa_letter_missing'],
+    scheduling: ['installer_not_accepting', 'customer_unresponsive', 'equipment_backorder', 'financing_pending'],
+    installation: ['installer_reschedule', 'equipment_backorder', 'access_issue'],
+    inspection: ['inspection_failed', 'installer_photos_missing', 'ahj_review_stalled'],
+    interconnection: ['utility_pto_delay', 'utility_clarification', 'interconnection_denied', 'meter_collar_needed'],
+    rebate: ['docs_missing'],
+  };
+
+  PROJECTS.forEach(p => {
+    if (p.stage === 'completed') return;
+
+    // Probability of having a blocker — higher for at-risk and later-stage projects
+    const baseP =
+      p.riskLevel === 'high' ? 0.75 :
+      p.riskLevel === 'medium' ? 0.35 :
+      0.15;
+
+    if (rand() > baseP) return;
+
+    const pool = stageBlockerPool[p.stage] || [];
+    if (pool.length === 0) return;
+
+    // Usually 1 blocker, occasionally 2
+    const count = rand() < 0.15 ? 2 : 1;
+    const picked = new Set();
+    for (let i = 0; i < count; i++) {
+      const code = pool[Math.floor(rand() * pool.length)];
+      if (picked.has(code)) continue;
+      picked.add(code);
+
+      // Age the blocker. Higher-risk projects have older blockers.
+      let openedDaysAgo;
+      if (p.riskLevel === 'high') {
+        openedDaysAgo = 14 + Math.floor(rand() * 30); // 14-44 days
+      } else if (p.riskLevel === 'medium') {
+        openedDaysAgo = 5 + Math.floor(rand() * 15); // 5-20 days
+      } else {
+        openedDaysAgo = 1 + Math.floor(rand() * 6); // 1-7 days
+      }
+
+      const coordOptions = ['Shane Brennan', 'Danny Chen', 'Yaz Okonkwo', 'Tenacia Williams'];
+      const openedBy = p.coord || coordOptions[Math.floor(rand() * coordOptions.length)];
+
+      pushBlocker(p.id, code, openedDaysAgo, null, openedBy);
+    }
+  });
+})();
+
+// Index blockers by project for fast lookup
+const BLOCKERS_BY_PROJECT = {};
+BLOCKERS.forEach(b => {
+  if (!BLOCKERS_BY_PROJECT[b.projectId]) BLOCKERS_BY_PROJECT[b.projectId] = [];
+  BLOCKERS_BY_PROJECT[b.projectId].push(b);
+});
+
+function getProjectBlockers(projectId) {
+  return (BLOCKERS_BY_PROJECT[projectId] || []).filter(b => !b.resolvedAt);
+}
+
+function isBlocked(projectId) {
+  return getProjectBlockers(projectId).length > 0;
+}
+
+// Age helper for color tone
+function blockerAgeTone(b) {
+  if (b.openedDaysAgo >= b.expectedResolutionDays * 2) return 'danger';
+  if (b.openedDaysAgo >= b.expectedResolutionDays) return 'warn';
+  return 'ok';
+}
+
+// ============================================================
 // PHOTOS
 // ============================================================
 const PHOTO_CATEGORIES = ['roof_north', 'roof_south', 'main_panel', 'meter', 'attic', 'battery_location', 'inverter', 'subpanel'];
@@ -658,6 +810,216 @@ PROJECTS.forEach(proj => {
     });
   }
 });
+
+
+// ============================================================
+// INSTALL DAY RUNBOOK — photo requirements, equipment checklist, signoff
+// ============================================================
+// Photo requirements per project: category, label, phase, required, uploaded
+const RUNBOOK_PHOTO_SPEC = [
+  // Pre-install
+  { category: 'roof_overview', label: 'Roof overview (pre)', phase: 'pre', required: true },
+  { category: 'main_panel_open', label: 'Main service panel (open)', phase: 'pre', required: true },
+  { category: 'meter', label: 'Utility meter + meter #', phase: 'pre', required: true },
+  { category: 'battery_location', label: 'Battery install location', phase: 'pre', required: true },
+  { category: 'subpanel', label: 'Subpanel (if applicable)', phase: 'pre', required: false },
+  // During install
+  { category: 'panels_on_roof', label: 'Panels mounted on roof', phase: 'during', required: true },
+  { category: 'conduit_run', label: 'Conduit run', phase: 'during', required: true },
+  { category: 'inverter_mounted', label: 'Inverter mounted', phase: 'during', required: true },
+  { category: 'battery_mounted', label: 'Battery mounted', phase: 'during', required: true },
+  // Post-install
+  { category: 'equipment_labels', label: 'Equipment labels', phase: 'post', required: true },
+  { category: 'breaker_labels', label: 'Breaker labels', phase: 'post', required: true },
+  { category: 'completion_shot', label: 'Completion beauty shot', phase: 'post', required: true },
+];
+
+// Per-project runbook state. Seeded from install progress.
+const RUNBOOK_STATE = {};
+
+function panelCount(p) {
+  // Rough estimate: 400W panels
+  return Math.round((p.solar * 1000) / 400);
+}
+
+function inverterModel(p) {
+  return p.solar >= 10 ? 'Enphase IQ8M-72-M-US' : 'Enphase IQ8+-72-M-US';
+}
+
+function batteryModel(p) {
+  if (!p.battery) return null;
+  if (p.battery <= 13.5) return 'Tesla Powerwall 3';
+  if (p.battery <= 16) return 'FranklinWH aPower 2';
+  return 'Tesla Powerwall 3 (x2)';
+}
+
+// Seed runbook state for projects at scheduling, installation, inspection, interconnection, rebate
+PROJECTS.forEach(p => {
+  const d = INSTALLER_PROJECT_DATA[p.id];
+  if (!d || !p.installer) return;
+  if (!['scheduling', 'installation', 'inspection', 'interconnection', 'rebate', 'completed'].includes(p.stage)) return;
+
+  // Determine runbook phase
+  let runbookPhase;
+  if (!d.installConfirmedDate) runbookPhase = 'upcoming';
+  else if (!d.installCompletedAt) {
+    // Is install date today?
+    const today = new Date().toISOString().slice(0, 10);
+    if (d.installConfirmedDate <= today) runbookPhase = 'in_progress';
+    else runbookPhase = 'upcoming';
+  } else runbookPhase = 'complete';
+
+  // Photo upload state — fill in based on runbook phase
+  const photoUploads = {};
+  RUNBOOK_PHOTO_SPEC.forEach(spec => {
+    photoUploads[spec.category] = {
+      uploaded: false,
+      uploadedAt: null,
+      gradient: `photo-${1 + Math.floor(Math.random() * 8)}`,
+    };
+  });
+
+  if (runbookPhase === 'in_progress' || runbookPhase === 'complete') {
+    // Pre-install photos done
+    RUNBOOK_PHOTO_SPEC.filter(s => s.phase === 'pre').forEach(s => {
+      if (s.required || Math.random() < 0.8) {
+        photoUploads[s.category].uploaded = true;
+        photoUploads[s.category].uploadedAt = d.installCompletedAt ? d.installCompletedAt - 86400000 : Date.now() - 86400000;
+      }
+    });
+  }
+
+  if (runbookPhase === 'complete') {
+    // During + post photos mostly done
+    RUNBOOK_PHOTO_SPEC.filter(s => s.phase === 'during' || s.phase === 'post').forEach(s => {
+      if (Math.random() < 0.92) {
+        photoUploads[s.category].uploaded = true;
+        photoUploads[s.category].uploadedAt = d.installCompletedAt;
+      }
+    });
+  }
+
+  // Equipment checklist — all done by the morning if install is in progress or complete
+  const equipmentChecklist = [
+    { key: 'panels', label: `${panelCount(p)} solar panels on truck`, checked: runbookPhase !== 'upcoming' },
+    { key: 'inverter', label: `Inverter (${inverterModel(p)})`, checked: runbookPhase !== 'upcoming' },
+    { key: 'battery', label: p.battery ? `Battery (${batteryModel(p)})` : null, checked: runbookPhase !== 'upcoming' },
+    { key: 'racking', label: 'Racking + flashings', checked: runbookPhase !== 'upcoming' },
+    { key: 'conduit', label: 'Conduit + fittings', checked: runbookPhase !== 'upcoming' },
+    { key: 'breakers', label: 'Breakers + load center components', checked: runbookPhase !== 'upcoming' },
+    { key: 'monitoring', label: 'Monitoring gateway', checked: runbookPhase !== 'upcoming' },
+    { key: 'permit', label: 'Permit copy + job packet', checked: runbookPhase !== 'upcoming' },
+  ].filter(x => x.label);
+
+  // Synth site notes — things the surveyor would have flagged
+  const noteTemplates = [
+    'Access from driveway, park in driveway not street',
+    'Main panel in garage, accessible',
+    'Dog in yard — customer will secure before 8am',
+    'Gate code 4412',
+    'Roof: composition shingle, moderate pitch',
+    'Lockbox on side gate, code 0814',
+    'Ladder access from east side of house',
+    'Neighbor gave permission for temporary cone placement',
+    'No HOA, direct permit only',
+    'Attic access via bedroom closet, 2nd floor',
+  ];
+  const siteNotes = [];
+  const noteCount = 2 + Math.floor(Math.random() * 3);
+  const usedNotes = new Set();
+  for (let i = 0; i < noteCount; i++) {
+    const n = noteTemplates[Math.floor(Math.random() * noteTemplates.length)];
+    if (!usedNotes.has(n)) {
+      siteNotes.push(n);
+      usedNotes.add(n);
+    }
+  }
+
+  // Customer phone — synth
+  const customerPhone = '(415) ' + String(200 + Math.floor(Math.random() * 799)) + '-' + String(1000 + Math.floor(Math.random() * 8999));
+
+  RUNBOOK_STATE[p.id] = {
+    phase: runbookPhase,
+    photoUploads,
+    equipmentChecklist,
+    siteNotes,
+    customerPhone,
+    crewLead: 'Jorge Martinez',
+    crewSize: 3 + Math.floor(Math.random() * 2),
+    signoffName: null,
+    signoffAt: null,
+  };
+});
+
+function runbookState(p) {
+  return RUNBOOK_STATE[p.id] || null;
+}
+
+// Pin some Sunlight Solar jobs to today / yesterday / tomorrow so the Install Day demo has content
+(function pinRunbookDemoJobs() {
+  const sunlightJobs = PROJECTS.filter(p =>
+    p.installer === 'Sunlight Solar Co.' &&
+    INSTALLER_PROJECT_DATA[p.id] &&
+    RUNBOOK_STATE[p.id] &&
+    !INSTALLER_PROJECT_DATA[p.id].installCompletedAt
+  );
+
+  const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const dayAfter = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  const in3days = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const in5days = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+
+  // Up to 2 "today", 1 in-progress (install date past but not completed), several upcoming
+  const schedulingJobs = sunlightJobs.filter(p => p.stage === 'scheduling' || p.stage === 'installation');
+
+  if (schedulingJobs[0]) {
+    INSTALLER_PROJECT_DATA[schedulingJobs[0].id].installConfirmedDate = today;
+    RUNBOOK_STATE[schedulingJobs[0].id].phase = 'in_progress';
+  }
+  if (schedulingJobs[1]) {
+    INSTALLER_PROJECT_DATA[schedulingJobs[1].id].installConfirmedDate = today;
+    RUNBOOK_STATE[schedulingJobs[1].id].phase = 'in_progress';
+  }
+  if (schedulingJobs[2]) {
+    INSTALLER_PROJECT_DATA[schedulingJobs[2].id].installConfirmedDate = tomorrow;
+    RUNBOOK_STATE[schedulingJobs[2].id].phase = 'upcoming';
+    // Clear during/post photos since it's upcoming
+    RUNBOOK_PHOTO_SPEC.filter(s => s.phase !== 'pre').forEach(s => {
+      RUNBOOK_STATE[schedulingJobs[2].id].photoUploads[s.category].uploaded = false;
+      RUNBOOK_STATE[schedulingJobs[2].id].photoUploads[s.category].uploadedAt = null;
+    });
+    // And clear equipment since truck not loaded yet
+    RUNBOOK_STATE[schedulingJobs[2].id].equipmentChecklist.forEach(e => e.checked = false);
+  }
+  [3, 4, 5, 6].forEach((idx, i) => {
+    if (!schedulingJobs[idx]) return;
+    const dates = [dayAfter, in3days, in3days, in5days];
+    INSTALLER_PROJECT_DATA[schedulingJobs[idx].id].installConfirmedDate = dates[i];
+    RUNBOOK_STATE[schedulingJobs[idx].id].phase = 'upcoming';
+    RUNBOOK_PHOTO_SPEC.filter(s => s.phase !== 'pre').forEach(s => {
+      RUNBOOK_STATE[schedulingJobs[idx].id].photoUploads[s.category].uploaded = false;
+      RUNBOOK_STATE[schedulingJobs[idx].id].photoUploads[s.category].uploadedAt = null;
+    });
+    RUNBOOK_STATE[schedulingJobs[idx].id].equipmentChecklist.forEach(e => e.checked = false);
+  });
+})();
+
+function runbookPhotoProgress(p) {
+  const state = runbookState(p);
+  if (!state) return { completed: 0, total: 0, required: 0, requiredCompleted: 0 };
+  const uploads = state.photoUploads;
+  let completed = 0, total = 0, required = 0, requiredCompleted = 0;
+  RUNBOOK_PHOTO_SPEC.forEach(spec => {
+    total++;
+    if (spec.required) required++;
+    if (uploads[spec.category]?.uploaded) {
+      completed++;
+      if (spec.required) requiredCompleted++;
+    }
+  });
+  return { completed, total, required, requiredCompleted };
+}
 
 
 // ============================================================
@@ -1028,6 +1390,7 @@ let pipelineDrilldownFilters = { utility: null, installer: null, coord: null, su
 let pipelineDrilldownOpenFilter = null; // which column filter dropdown is open
 let pipelineDrilldownSort = { col: 'risk', dir: 'desc' };
 let taskBatchMode = false;
+let taskStatusFilter = 'open'; // open | completed | all
 let assignedInstallers = {};
 let assignedCoords = {};
 let completedTasks = new Set();
@@ -1145,14 +1508,13 @@ function getReadyToAdvanceCount(scope = 'current') {
 // ============================================================
 const NAV_INTERNAL = [
   { group: 'Work' },
-  { view: 'home', label: 'Home', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>' },
   { view: 'pipeline', label: 'Pipeline', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>' },
   { view: 'projects', label: 'Projects', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>' },
   { view: 'tasks', label: 'Tasks', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>' },
   { group: 'Tracking' },
+  { view: 'blockers', label: 'Blockers', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>' },
   { view: 'post_install', label: 'Post-Install', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>' },
   { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
-  { view: 'inbox', label: 'Inbox', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>' },
   { group: 'Reporting' },
   { view: 'metrics', label: 'Metrics', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>' },
   { view: 'monthly_stats', label: 'Monthly Stats', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
@@ -1164,12 +1526,11 @@ const NAV_INSTALLER = [
   { view: 'workorders', label: 'Work Orders', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>' },
   { group: 'Work' },
   { view: 'jobs', label: 'My Jobs', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>' },
+  { view: 'install_day', label: 'Install Day', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>' },
   { view: 'tasks', label: 'My Tasks', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>' },
   { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
   { group: 'Tracking' },
   { view: 'payments', label: 'Payments', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>' },
-  { view: 'inbox', label: 'Messages', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>' },
-  { view: 'photos', label: 'Photos', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
 ];
 
 function renderNav() {
@@ -1200,6 +1561,8 @@ function renderNav() {
       pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
       pipelineDrilldownOpenFilter = null;
       pipelineSearch = '';
+      runbookProjectId = null;
+      jobsSearch = '';
       renderNav();
       render();
     });
@@ -1244,24 +1607,24 @@ function setMode(mode) {
 function render() {
   main.innerHTML = '';
   if (viewMode === 'internal') {
-    if (currentView === 'home') renderHome();
-    else if (currentView === 'pipeline') renderPipeline();
+    if (currentView === 'pipeline') renderPipeline();
     else if (currentView === 'projects') renderProjects();
     else if (currentView === 'tasks') renderTasks(false);
+    else if (currentView === 'blockers') renderBlockers();
     else if (currentView === 'post_install') renderPostInstall();
     else if (currentView === 'schedule') renderSchedule();
-    else if (currentView === 'inbox') renderInbox(false);
     else if (currentView === 'metrics') renderMetrics();
     else if (currentView === 'monthly_stats') renderMonthlyStats();
+    else renderPipeline();
   } else {
     if (currentView === 'dashboard') renderInstallerDashboard();
     else if (currentView === 'workorders') renderWorkOrders();
     else if (currentView === 'jobs') renderInstallerJobs();
+    else if (currentView === 'install_day') renderInstallDay();
     else if (currentView === 'payments') renderInstallerPayments();
     else if (currentView === 'tasks') renderTasks(true);
     else if (currentView === 'schedule') renderSchedule();
-    else if (currentView === 'inbox') renderInbox(true);
-    else if (currentView === 'photos') renderPhotos(true);
+    else renderInstallerDashboard();
   }
   main.scrollTop = 0;
 }
@@ -1315,6 +1678,59 @@ function renderHome() {
         <h1 class="font-serif text-2xl font-bold text-haven-forest">${isLeadership ? 'Leadership home' : `Good morning, ${displayName}`}</h1>
         <p class="text-sm text-haven-muted mt-1">${visible.length} active · ${attention.length === 0 ? 'nothing flagged' : `${attention.length} need${attention.length === 1 ? 's' : ''} attention`}${readyToAdvance.length > 0 ? ` · <span class="text-haven-ok font-medium">${readyToAdvance.length} ready to advance</span>` : ''}</p>
       </div>
+
+      ${(() => {
+        const visibleIds = new Set(visible.map(p => p.id));
+        const openBlockers = BLOCKERS.filter(b => !b.resolvedAt && visibleIds.has(b.projectId));
+        if (openBlockers.length === 0) return '';
+
+        const ancient = openBlockers.filter(b => b.openedDaysAgo >= 30).length;
+        const stale = openBlockers.filter(b => b.openedDaysAgo >= 7 && b.openedDaysAgo < 30).length;
+        const uniqueProjects = new Set(openBlockers.map(b => b.projectId)).size;
+        const oldest = openBlockers.reduce((max, b) => b.openedDaysAgo > max ? b.openedDaysAgo : max, 0);
+
+        // Top 3 oldest blockers to preview
+        const preview = openBlockers.slice().sort((a, b) => b.openedDaysAgo - a.openedDaysAgo).slice(0, 3);
+
+        const borderColor = ancient > 0 ? '#C44545' : stale > 0 ? '#E0A83A' : '#6B7568';
+        const tone = ancient > 0 ? 'danger' : stale > 0 ? 'warn' : 'neutral';
+        const toneClass = tone === 'danger' ? 'text-haven-danger' : tone === 'warn' ? 'text-haven-warn' : 'text-haven-forest';
+
+        return `
+          <div class="card p-0 overflow-hidden mb-5" style="border-left: 4px solid ${borderColor};">
+            <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between cursor-pointer hover:bg-haven-bg" onclick="goToBlockers()">
+              <div>
+                <h2 class="font-serif font-bold ${toneClass}">Blockers (${openBlockers.length} across ${uniqueProjects} project${uniqueProjects === 1 ? '' : 's'})</h2>
+                <div class="text-xs text-haven-muted mt-0.5">
+                  ${ancient > 0 ? `<span class="text-haven-danger font-medium">${ancient} ancient (30d+)</span> · ` : ''}
+                  ${stale > 0 ? `<span class="text-haven-warn font-medium">${stale} stale</span> · ` : ''}
+                  oldest is ${oldest}d
+                </div>
+              </div>
+              <div class="text-xs text-haven-forest hover:underline">View all →</div>
+            </div>
+            ${preview.map(b => {
+              const p = PROJECTS.find(pp => pp.id === b.projectId);
+              if (!p) return '';
+              const tone = blockerAgeTone(b);
+              const ageClass = tone === 'danger' ? 'text-haven-danger' : tone === 'warn' ? 'text-haven-warn' : 'text-haven-muted';
+              const catColor = BLOCKER_CATEGORY_COLORS[b.category];
+              return `
+                <div class="cursor-pointer hover:bg-haven-bg px-4 py-3 border-b border-haven-border flex items-center gap-3" data-project-id="${p.id}">
+                  <div class="w-2 h-2 rounded-full shrink-0" style="background:${catColor}"></div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium truncate">${b.label}</span>
+                      <span class="text-xs text-haven-muted">· ${p.name}</span>
+                    </div>
+                    <div class="text-xs text-haven-muted mt-0.5 truncate">${b.resolution}</div>
+                  </div>
+                  <div class="tabular-nums text-sm font-semibold shrink-0 ${ageClass}">${b.openedDaysAgo}d</div>
+                </div>`;
+            }).join('')}
+          </div>
+        `;
+      })()}
 
       ${readyToAdvance.length > 0 ? `
         <div class="card p-0 overflow-hidden mb-5" style="border-left: 4px solid #2F7A3E;">
@@ -1502,6 +1918,7 @@ function renderPipeline() {
 
     const atRiskInStage = projects.filter(p => p.riskLevel === 'high').length;
     const readyInStage = projects.filter(p => isReadyToAdvance(p)).length;
+    const blockedInStage = projects.filter(p => isBlocked(p.id)).length;
 
     const toneColor = {
       ok: '#2F7A3E', warn: '#E0A83A', danger: '#C44545',
@@ -1519,6 +1936,7 @@ function renderPipeline() {
             <div class="text-xs text-haven-muted mt-0.5">
               ${count} project${count === 1 ? '' : 's'}
               ${atRiskInStage > 0 ? ` · <span class="text-haven-danger font-medium">${atRiskInStage} at risk</span>` : ''}
+              ${blockedInStage > 0 ? ` · <span class="text-haven-warn font-medium">${blockedInStage} blocked</span>` : ''}
               ${readyInStage > 0 ? ` · <span class="text-haven-ok font-medium">${readyInStage} ready</span>` : ''}
             </div>
           </div>
@@ -1575,9 +1993,13 @@ function renderPipeline() {
         ${pipelineSearch ? `<span class="text-xs text-haven-muted ml-2">${activeAll.length} match${activeAll.length === 1 ? '' : 'es'} for "${pipelineSearch}"</span>` : ''}
       </div>
 
-      <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="grid grid-cols-5 gap-4 mb-6">
         ${kpiTile('Active', totalCount, 'forest', 'in pre-install pipeline')}
         ${kpiTile('At Risk', atRiskCount, atRiskCount > 0 ? 'danger' : 'ok', atRiskCount > 0 ? 'need attention' : 'none flagged')}
+        ${(() => {
+          const activeBlocked = stateFilteredAll.filter(p => isBlocked(p.id)).length;
+          return kpiTile('Blocked', activeBlocked, activeBlocked > 0 ? 'warn' : 'ok', activeBlocked > 0 ? '<a href="#" onclick="goToBlockers();return false;" class="text-haven-forest hover:underline">view blockers →</a>' : 'none');
+        })()}
         ${kpiTile('Ready to Advance', readyCount, readyCount > 0 ? 'ok' : 'neutral', readyCount > 0 ? 'move these forward' : 'none ready')}
         ${kpiTile('Completed', completedCount, 'ok', 'lifetime')}
       </div>
@@ -1809,9 +2231,17 @@ function renderPipelineDrilldown() {
               const subLabel = subBucket ? subBucket.label : '—';
               const subToneColor = subBucket ? ({ ok: '#2F7A3E', warn: '#E0A83A', danger: '#C44545', info: '#3A6EA8', neutral: '#6B7568' }[subBucket.tone] || '#6B7568') : '#6B7568';
               const installDate = INSTALLER_PROJECT_DATA[p.id]?.installConfirmedDate || '—';
+              const projBlockers = getProjectBlockers(p.id);
+              const hasBlocker = projBlockers.length > 0;
+              const blockerTooltip = hasBlocker ? projBlockers.map(b => `${b.label} (${b.openedDaysAgo}d)`).join(' · ') : '';
               return `
                 <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
-                  <td class="px-3 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
+                  <td class="px-3 py-2.5">
+                    <div class="flex items-center gap-1">
+                      <span class="risk-dot ${p.riskLevel || 'low'}"></span>
+                      ${hasBlocker ? `<span class="inline-flex items-center justify-center w-4 h-4 rounded-full" style="background:#C5843A;color:white;font-size:10px;font-weight:bold;" title="${blockerTooltip}">⚠</span>` : ''}
+                    </div>
+                  </td>
                   <td class="px-3 py-2.5">
                     <div class="font-medium text-haven-forest">${p.name}</div>
                     <div class="text-[11px] text-haven-muted">${p.projectNumber} · ${p.city}, ${p.state}</div>
@@ -2179,65 +2609,242 @@ function handleStageMove(p, newStage) {
 // ============================================================
 // PROJECTS LIST
 // ============================================================
+let projectsSearch = '';
+let projectsSort = { col: 'active_then_risk', dir: 'desc' };
+let projectsFilters = { stage: null, coord: null, installer: null, utility: null, status: null };
+let projectsOpenFilter = null;
+
 function renderProjects() {
-  const fullList = visibleProjects();
-  // Sort: active first (by risk descending), then completed (recent first)
-  const sorted = fullList.slice().sort((a, b) => {
-    const aActive = a.stage !== 'completed';
-    const bActive = b.stage !== 'completed';
-    if (aActive !== bActive) return aActive ? -1 : 1;
-    if (aActive) return b.risk - a.risk;
-    return a.lastTouchedDaysAgo - b.lastTouchedDaysAgo;
+  let list = visibleProjects().slice();
+
+  // Apply column filters
+  if (projectsFilters.stage) list = list.filter(p => p.stage === projectsFilters.stage);
+  if (projectsFilters.coord) list = list.filter(p => p.coord === projectsFilters.coord);
+  if (projectsFilters.installer) list = list.filter(p => (p.installer || '—') === projectsFilters.installer);
+  if (projectsFilters.utility) list = list.filter(p => p.utility === projectsFilters.utility);
+  if (projectsFilters.status) {
+    list = list.filter(p => {
+      const ready = isReadyToAdvance(p);
+      if (projectsFilters.status === 'completed') return p.stage === 'completed';
+      if (projectsFilters.status === 'ready') return p.stage !== 'completed' && ready;
+      if (projectsFilters.status === 'breached') return p.stage !== 'completed' && p.slaStatus === 'breached';
+      if (projectsFilters.status === 'approaching') return p.stage !== 'completed' && p.slaStatus === 'approaching' && !ready;
+      if (projectsFilters.status === 'on_track') return p.stage !== 'completed' && p.slaStatus === 'ok' && !ready;
+      return true;
+    });
+  }
+
+  // Search
+  if (projectsSearch.trim()) {
+    const q = projectsSearch.trim().toLowerCase();
+    list = list.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.city.toLowerCase().includes(q) ||
+      p.projectNumber.toLowerCase().includes(q) ||
+      p.zip.includes(q)
+    );
+  }
+
+  // Sort
+  const acc = {
+    active_then_risk: p => p.stage === 'completed' ? -1 : p.risk,
+    risk: p => p.risk,
+    project_number: p => p.projectNumber,
+    customer: p => p.name.toLowerCase(),
+    location: p => p.city.toLowerCase(),
+    stage: p => p.stage === 'completed' ? 999 : STAGE_ORDER.indexOf(p.stage),
+    coord: p => (p.coord || '').toLowerCase(),
+    installer: p => (p.installer || 'zzz').toLowerCase(),
+    status: p => p.stage === 'completed' ? 3 : isReadyToAdvance(p) ? 0 : p.slaStatus === 'breached' ? 1 : p.slaStatus === 'approaching' ? 2 : 2.5,
+    next_action: p => (p.nextAction || '').toLowerCase(),
+    last_touched: p => p.lastTouchedDaysAgo,
+  };
+  const accFn = acc[projectsSort.col] || acc.active_then_risk;
+  const dir = projectsSort.dir === 'asc' ? 1 : -1;
+  list.sort((a, b) => {
+    const av = accFn(a), bv = accFn(b);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
   });
+
+  // Facet values for dropdowns (derived from currently visible pool before search & column filters)
+  const fullPool = visibleProjects();
+  const stages = [...new Set(fullPool.map(p => p.stage))].sort((a, b) => {
+    if (a === 'completed') return 1;
+    if (b === 'completed') return -1;
+    return STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b);
+  });
+  const coords = [...new Set(fullPool.map(p => p.coord))].sort();
+  const installers = [...new Set(fullPool.map(p => p.installer || '—'))].sort();
+  const utilities = [...new Set(fullPool.map(p => p.utility))].sort();
+
+  const activeFilterCount = Object.values(projectsFilters).filter(v => v !== null).length;
+
   const CAP = 200;
-  const list = sorted.slice(0, CAP);
-  const rows = list.map(p => {
-    const ready = isReadyToAdvance(p);
-    const slaBadge = p.stage === 'completed' ? '<span class="badge badge-neutral">completed</span>'
-      : ready ? '<span class="badge badge-ok">ready to advance</span>'
-      : p.slaStatus === 'breached' ? `<span class="badge badge-danger">${p.daysOverdue}d over</span>`
-      : p.slaStatus === 'approaching' ? `<span class="badge badge-warn">approaching</span>`
-      : `<span class="badge badge-ok">on track</span>`;
-    const inst = getInstaller(p);
-    const coord = getCoord(p);
+  const shown = list.slice(0, CAP);
+
+  function th(key, label, opts = {}) {
+    const { filterCol = null, filterOptions = null, sortable = true } = opts;
+    const isSorted = projectsSort.col === key;
+    const icon = isSorted ? (projectsSort.dir === 'asc' ? '↑' : '↓') : '<span style="color:#C4C4C0">↕</span>';
+    const filterValue = filterCol ? projectsFilters[filterCol] : null;
+    const hasFilter = filterValue !== null;
     return `
-      <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
-        <td class="px-3 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
-        <td class="px-3 py-2.5 text-xs text-haven-muted">${p.projectNumber}</td>
-        <td class="px-3 py-2.5 font-medium text-haven-forest">${p.name}</td>
-        <td class="px-3 py-2.5 text-haven-muted">${p.city}, ${p.state}</td>
-        <td class="px-3 py-2.5">${p.stage === 'completed' ? 'Completed' : STAGE_LABELS[p.stage]}</td>
-        <td class="px-3 py-2.5">${avatar(coord, 20)} <span class="text-xs align-middle ml-1">${coord.split(' ')[0]}</span></td>
-        <td class="px-3 py-2.5 text-xs ${inst ? '' : 'text-haven-muted italic'}">${inst ? inst.split(' ')[0] : '—'}</td>
-        <td class="px-3 py-2.5">${slaBadge}</td>
-        <td class="px-3 py-2.5 text-xs">${p.nextAction ? `<span class="truncate block max-w-[200px]" title="${p.nextAction}">${p.nextAction}</span>` : '<span class="text-haven-danger">— not set —</span>'}</td>
-        <td class="px-3 py-2.5 text-xs ${p.lastTouchedDaysAgo >= IDLE_DANGER ? 'text-haven-warn font-medium' : 'text-haven-muted'}">${p.lastTouchedDaysAgo}d ago</td>
-      </tr>`;
-  }).join('');
+      <th class="px-3 py-2.5 text-left relative select-none">
+        <div class="flex items-center gap-1">
+          ${sortable ? `<button class="uppercase tracking-wide text-xs text-haven-muted hover:text-haven-forest flex items-center gap-1" onclick="toggleProjSort('${key}')">${label} ${icon}</button>` : `<span class="uppercase tracking-wide text-xs text-haven-muted">${label}</span>`}
+          ${filterOptions ? `
+            <button class="text-haven-muted hover:text-haven-forest px-1" onclick="toggleProjFilterMenu('${filterCol}')">
+              <svg class="w-3 h-3 inline" fill="${hasFilter ? '#013300' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+              ${hasFilter ? `<span class="inline-block w-1.5 h-1.5 rounded-full bg-haven-forest ml-1"></span>` : ''}
+            </button>
+            ${projectsOpenFilter === filterCol ? `
+              <div class="absolute z-20 mt-1 bg-white border border-haven-border rounded-md shadow-lg py-1 text-sm text-left" style="top:100%; left:0; min-width:200px; max-height:320px; overflow-y:auto;">
+                <button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${filterValue === null ? 'font-semibold text-haven-forest' : ''}" onclick="setProjFilter('${filterCol}', null)">All</button>
+                ${filterOptions.map(opt => `<button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${filterValue === opt.value ? 'font-semibold text-haven-forest' : ''}" onclick="setProjFilter('${filterCol}', '${String(opt.value).replace(/'/g, "\\'")}')">${opt.label}</button>`).join('')}
+              </div>
+            ` : ''}
+          ` : ''}
+        </div>
+      </th>`;
+  }
+
+  const statusOptions = [
+    { label: 'Ready to advance', value: 'ready' },
+    { label: 'Past SLA', value: 'breached' },
+    { label: 'Approaching SLA', value: 'approaching' },
+    { label: 'On track', value: 'on_track' },
+    { label: 'Completed', value: 'completed' },
+  ];
 
   main.innerHTML = `
     <div class="p-6">
-      <div class="mb-6">
-        <h1 class="font-serif text-2xl font-bold text-haven-forest">Projects</h1>
-        <p class="text-sm text-haven-muted mt-1">${currentCoord === '__all__' ? 'All coordinators' : currentCoord} · ${fullList.length} total (${fullList.filter(p => p.stage !== 'completed').length} active, ${fullList.filter(p => p.stage === 'completed').length} completed)</p>
+      <div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
+        <div>
+          <h1 class="font-serif text-2xl font-bold text-haven-forest">Projects</h1>
+          <p class="text-sm text-haven-muted mt-1">
+            ${currentCoord === '__all__' ? 'All coordinators' : currentCoord} · ${list.length} shown of ${visibleProjects().length}
+            ${activeFilterCount > 0 ? ` · <button class="text-haven-forest hover:underline" onclick="clearAllProjFilters()">Clear ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}</button>` : ''}
+          </p>
+        </div>
+        <div class="relative">
+          <input type="text" id="projSearch" placeholder="Search name, city, project #..." value="${projectsSearch.replace(/"/g, '&quot;')}"
+            class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-72" />
+          <svg class="absolute left-2.5 top-2 w-4 h-4 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          ${projectsSearch ? `<button onclick="clearProjSearch()" class="absolute right-2 top-2 text-haven-muted hover:text-haven-ink text-sm">×</button>` : ''}
+        </div>
       </div>
-      <div class="card p-0 overflow-hidden">
+
+      <div class="card p-0 overflow-visible">
         <table class="w-full text-sm">
           <thead class="bg-haven-bg border-b border-haven-border">
-            <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
-              <th class="px-3 py-2.5">Risk</th><th class="px-3 py-2.5">#</th><th class="px-3 py-2.5">Customer</th>
-              <th class="px-3 py-2.5">Location</th><th class="px-3 py-2.5">Stage</th><th class="px-3 py-2.5">Coord</th>
-              <th class="px-3 py-2.5">Installer</th><th class="px-3 py-2.5">Status</th><th class="px-3 py-2.5">Next action</th><th class="px-3 py-2.5">Last touched</th>
+            <tr>
+              ${th('risk', 'Risk')}
+              ${th('project_number', '#')}
+              ${th('customer', 'Customer')}
+              ${th('location', 'Location')}
+              ${th('stage', 'Stage', { filterCol: 'stage', filterOptions: stages.map(s => ({ label: s === 'completed' ? 'Completed' : STAGE_LABELS[s], value: s })) })}
+              ${th('coord', 'Coord', { filterCol: 'coord', filterOptions: coords.map(c => ({ label: c.split(' ')[0], value: c })) })}
+              ${th('installer', 'Installer', { filterCol: 'installer', filterOptions: installers.map(i => ({ label: i === '—' ? 'Not assigned' : i.split(' ')[0], value: i })) })}
+              ${th('status', 'Status', { filterCol: 'status', filterOptions: statusOptions })}
+              <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">
+                Utility
+                <button class="ml-1 text-haven-muted hover:text-haven-forest px-1" onclick="toggleProjFilterMenu('utility')">
+                  <svg class="w-3 h-3 inline" fill="${projectsFilters.utility ? '#013300' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+                </button>
+              </span>
+                ${projectsOpenFilter === 'utility' ? `
+                  <div class="absolute z-20 mt-1 bg-white border border-haven-border rounded-md shadow-lg py-1 text-sm text-left" style="top:100%; left:0; min-width:160px;">
+                    <button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${projectsFilters.utility === null ? 'font-semibold text-haven-forest' : ''}" onclick="setProjFilter('utility', null)">All</button>
+                    ${utilities.map(u => `<button class="w-full text-left px-3 py-1.5 hover:bg-haven-bg ${projectsFilters.utility === u ? 'font-semibold text-haven-forest' : ''}" onclick="setProjFilter('utility', '${u.replace(/'/g, "\\'")}')">${u}</button>`).join('')}
+                  </div>
+                ` : ''}
+              </th>
+              ${th('next_action', 'Next action')}
+              ${th('last_touched', 'Last touched')}
             </tr>
           </thead>
-          <tbody>${rows}</tbody>
+          <tbody>
+            ${shown.length === 0 ? `<tr><td colspan="11" class="px-4 py-8 text-center text-haven-muted">No projects match</td></tr>` : shown.map(p => {
+              const ready = isReadyToAdvance(p);
+              const slaBadge = p.stage === 'completed' ? '<span class="badge badge-neutral">completed</span>'
+                : ready ? '<span class="badge badge-ok">ready to advance</span>'
+                : p.slaStatus === 'breached' ? `<span class="badge badge-danger">${p.daysOverdue}d over</span>`
+                : p.slaStatus === 'approaching' ? `<span class="badge badge-warn">approaching</span>`
+                : `<span class="badge badge-ok">on track</span>`;
+              const inst = getInstaller(p);
+              const coord = getCoord(p);
+              return `
+                <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
+                  <td class="px-3 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
+                  <td class="px-3 py-2.5 text-xs text-haven-muted">${p.projectNumber}</td>
+                  <td class="px-3 py-2.5 font-medium text-haven-forest">${p.name}</td>
+                  <td class="px-3 py-2.5 text-haven-muted">${p.city}, ${p.state}</td>
+                  <td class="px-3 py-2.5">${p.stage === 'completed' ? 'Completed' : STAGE_LABELS[p.stage]}</td>
+                  <td class="px-3 py-2.5">${avatar(coord, 20)} <span class="text-xs align-middle ml-1">${coord.split(' ')[0]}</span></td>
+                  <td class="px-3 py-2.5 text-xs ${inst ? '' : 'text-haven-muted italic'}">${inst ? inst.split(' ')[0] : '—'}</td>
+                  <td class="px-3 py-2.5">${slaBadge}</td>
+                  <td class="px-3 py-2.5 text-xs text-haven-muted">${p.utility}</td>
+                  <td class="px-3 py-2.5 text-xs">${p.nextAction ? `<span class="truncate block max-w-[200px]" title="${p.nextAction}">${p.nextAction}</span>` : '<span class="text-haven-danger">— not set —</span>'}</td>
+                  <td class="px-3 py-2.5 text-xs ${p.lastTouchedDaysAgo >= IDLE_DANGER ? 'text-haven-warn font-medium' : 'text-haven-muted'}">${p.lastTouchedDaysAgo}d ago</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
         </table>
-        ${fullList.length > CAP ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${fullList.length} — highest risk and most recent first</div>` : ''}
+        ${list.length > CAP ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${list.length}</div>` : ''}
       </div>
     </div>
   `;
   attachProjectHandlers();
+
+  const s = document.getElementById('projSearch');
+  if (s) {
+    s.addEventListener('input', (e) => {
+      projectsSearch = e.target.value;
+      render();
+      setTimeout(() => {
+        const el = document.getElementById('projSearch');
+        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+      }, 0);
+    });
+  }
+
+  // Close dropdown on outside click
+  setTimeout(() => {
+    const handler = (e) => {
+      if (projectsOpenFilter && !e.target.closest('button')) {
+        projectsOpenFilter = null;
+        document.removeEventListener('click', handler);
+        render();
+      }
+    };
+    if (projectsOpenFilter) document.addEventListener('click', handler);
+  }, 0);
 }
+
+window.toggleProjSort = (col) => {
+  if (projectsSort.col === col) projectsSort.dir = projectsSort.dir === 'asc' ? 'desc' : 'asc';
+  else projectsSort = { col, dir: 'desc' };
+  render();
+};
+window.toggleProjFilterMenu = (col) => {
+  projectsOpenFilter = projectsOpenFilter === col ? null : col;
+  render();
+};
+window.setProjFilter = (col, value) => {
+  projectsFilters[col] = value;
+  projectsOpenFilter = null;
+  render();
+};
+window.clearAllProjFilters = () => {
+  projectsFilters = { stage: null, coord: null, installer: null, utility: null, status: null };
+  projectsSearch = '';
+  render();
+};
+window.clearProjSearch = () => { projectsSearch = ''; render(); };
 
 
 // ============================================================
@@ -2248,15 +2855,24 @@ function renderTasks(installerOnly) {
   const visibleIds = new Set(visible.map(p => p.id));
   let tasks = TASKS.filter(t => visibleIds.has(t.projectId) && (installerOnly ? t.ownerType === 'installer' : t.ownerType === 'internal'));
 
-  const overdueCount = tasks.filter(t => t.dueInDays < 0 && t.status !== 'done' && !completedTasks.has(t.id)).length;
-  const dueTodayCount = tasks.filter(t => t.dueInDays === 0 && t.status !== 'done' && !completedTasks.has(t.id)).length;
-  const thisWeekCount = tasks.filter(t => t.dueInDays > 0 && t.dueInDays <= 7 && t.status !== 'done' && !completedTasks.has(t.id)).length;
+  const isTaskDone = (t) => t.status === 'done' || completedTasks.has(t.id);
+
+  const openCount = tasks.filter(t => !isTaskDone(t)).length;
+  const doneCount = tasks.filter(t => isTaskDone(t)).length;
+
+  // Apply status filter
+  if (taskStatusFilter === 'open') tasks = tasks.filter(t => !isTaskDone(t));
+  else if (taskStatusFilter === 'completed') tasks = tasks.filter(t => isTaskDone(t));
+
+  const overdueCount = tasks.filter(t => t.dueInDays < 0 && !isTaskDone(t)).length;
+  const dueTodayCount = tasks.filter(t => t.dueInDays === 0 && !isTaskDone(t)).length;
+  const thisWeekCount = tasks.filter(t => t.dueInDays > 0 && t.dueInDays <= 7 && !isTaskDone(t)).length;
 
   // Batch mode: group tasks by normalized title (same action across many projects)
   let bodyHtml;
   if (taskBatchMode && !installerOnly) {
     const groups = {};
-    tasks.filter(t => t.status !== 'done' && !completedTasks.has(t.id)).forEach(t => {
+    tasks.filter(t => !isTaskDone(t)).forEach(t => {
       const key = t.title.toLowerCase().replace(/[#0-9].*/g, '').replace(/[^a-z ]/g, '').trim();
       if (!groups[key]) groups[key] = { title: t.title, items: [] };
       groups[key].items.push(t);
@@ -2285,7 +2901,12 @@ function renderTasks(installerOnly) {
     `).join('');
   } else {
     const CAP = 200;
-    const allSorted = [...tasks].sort((a, b) => a.dueInDays - b.dueInDays);
+    // When viewing completed tasks, sort most-recently-done first
+    // When viewing open (default), sort by due-date ascending
+    const allSorted = [...tasks].sort((a, b) => {
+      if (taskStatusFilter === 'completed') return 0; // preserve natural order
+      return a.dueInDays - b.dueInDays;
+    });
     const sorted = allSorted.slice(0, CAP);
     bodyHtml = `
       <table class="w-full text-sm">
@@ -2298,11 +2919,11 @@ function renderTasks(installerOnly) {
             <th class="px-4 py-2.5">Due</th>
           </tr>
         </thead>
-        <tbody>${sorted.length === 0 ? `<tr><td colspan="${installerOnly ? 4 : 5}" class="px-4 py-8 text-center text-haven-muted">No tasks</td></tr>` : sorted.map(t => {
+        <tbody>${sorted.length === 0 ? `<tr><td colspan="${installerOnly ? 4 : 5}" class="px-4 py-8 text-center text-haven-muted">No ${taskStatusFilter === 'completed' ? 'completed ' : taskStatusFilter === 'open' ? 'open ' : ''}tasks</td></tr>` : sorted.map(t => {
           const proj = PROJECTS.find(p => p.id === t.projectId);
           const overdue = t.dueInDays < 0;
           const dueText = t.dueInDays < 0 ? `${-t.dueInDays}d late` : t.dueInDays === 0 ? 'today' : `in ${t.dueInDays}d`;
-          const done = completedTasks.has(t.id) || t.status === 'done';
+          const done = isTaskDone(t);
           return `
             <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${proj.id}">
               <td class="px-4 py-2.5"><div class="checkbox ${done ? 'checked' : ''}" onclick="event.stopPropagation(); toggleTask('${t.id}')">${done ? '✓' : ''}</div></td>
@@ -2316,15 +2937,17 @@ function renderTasks(installerOnly) {
             </tr>`;
         }).join('')}</tbody>
       </table>
-      ${allSorted.length > CAP ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${allSorted.length} — most urgent first</div>` : ''}`;
+      ${allSorted.length > CAP ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${allSorted.length}${taskStatusFilter === 'open' ? ' — most urgent first' : ''}</div>` : ''}`;
   }
+
+  const statusChip = (key, label, count) => `<button class="filter-chip ${taskStatusFilter === key ? 'active' : ''}" onclick="setTaskStatusFilter('${key}')">${label} <span class="opacity-70 ml-1">${count}</span></button>`;
 
   main.innerHTML = `
     <div class="p-6 max-w-6xl">
       <div class="flex items-center justify-between mb-5">
         <div>
           <h1 class="font-serif text-2xl font-bold text-haven-forest">${installerOnly ? 'My Tasks' : 'Tasks'}</h1>
-          <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${tasks.length} total</p>
+          <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${tasks.length} shown</p>
         </div>
         <div class="flex items-center gap-2">
           ${!installerOnly ? `<button class="filter-chip ${taskBatchMode ? 'active' : ''}" onclick="toggleBatchMode()">Batch mode</button>` : ''}
@@ -2332,11 +2955,19 @@ function renderTasks(installerOnly) {
         </div>
       </div>
 
-      <div class="flex gap-3 mb-5">
-        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Overdue</div><div class="font-serif font-bold text-lg text-haven-danger">${overdueCount}</div></div>
-        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Today</div><div class="font-serif font-bold text-lg">${dueTodayCount}</div></div>
-        <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">This week</div><div class="font-serif font-bold text-lg">${thisWeekCount}</div></div>
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        ${statusChip('open', 'Open', openCount)}
+        ${statusChip('completed', 'Completed', doneCount)}
+        ${statusChip('all', 'All', openCount + doneCount)}
       </div>
+
+      ${taskStatusFilter !== 'completed' ? `
+        <div class="flex gap-3 mb-5">
+          <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Overdue</div><div class="font-serif font-bold text-lg text-haven-danger">${overdueCount}</div></div>
+          <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">Today</div><div class="font-serif font-bold text-lg">${dueTodayCount}</div></div>
+          <div class="card px-4 py-2"><div class="text-xs text-haven-muted uppercase">This week</div><div class="font-serif font-bold text-lg">${thisWeekCount}</div></div>
+        </div>
+      ` : ''}
 
       <div class="card p-0 overflow-hidden">${bodyHtml}</div>
     </div>
@@ -2345,6 +2976,7 @@ function renderTasks(installerOnly) {
 }
 
 window.toggleBatchMode = () => { taskBatchMode = !taskBatchMode; render(); };
+window.setTaskStatusFilter = (f) => { taskStatusFilter = f; render(); };
 window.toggleTask = (id) => {
   if (completedTasks.has(id)) completedTasks.delete(id);
   else completedTasks.add(id);
@@ -2753,6 +3385,8 @@ function renderInstallerDashboard() {
 
 window.goToView = (v) => { currentView = v; renderNav(); render(); };
 let jobsStateFilter = 'all';
+let jobsSearch = '';
+let runbookProjectId = null; // when set, Install Day shows the runbook for this project
 window.filterJobsByState = (s) => { jobsStateFilter = s; currentView = 'jobs'; renderNav(); render(); };
 
 // --------------------------------------------------------------
@@ -3026,11 +3660,23 @@ window.confirmAdderReview = confirmAdderReview;
 // --------------------------------------------------------------
 function renderInstallerJobs() {
   let active = installerActiveProjects();
-  const completed = installerCompletedProjects();
+  let completed = installerCompletedProjects();
 
   // Apply state filter if set via dashboard
   if (jobsStateFilter !== 'all') {
     active = active.filter(p => projectInstallerState(p) === jobsStateFilter);
+  }
+
+  // Apply search
+  if (jobsSearch.trim()) {
+    const q = jobsSearch.trim().toLowerCase();
+    const match = (p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.city.toLowerCase().includes(q) ||
+      p.projectNumber.toLowerCase().includes(q) ||
+      p.zip.includes(q);
+    active = active.filter(match);
+    completed = completed.filter(match);
   }
 
   const stateCounts = {};
@@ -3057,6 +3703,7 @@ function renderInstallerJobs() {
     const toneClass = tone === 'danger' ? 'text-haven-danger' : tone === 'warn' ? 'text-haven-warn' : tone === 'ok' ? 'text-haven-ok' : 'text-haven-muted';
     const d = INSTALLER_PROJECT_DATA[p.id] || {};
     const pay = PAYMENTS[p.id];
+    const hasRunbook = !!runbookState(p);
     let dateLine = '';
     if (d.installConfirmedDate && !d.installCompletedAt) dateLine = `Install: ${d.installConfirmedDate}`;
     else if (d.installCompletedAt && !d.inspectionConfirmedDate) dateLine = `Installed ${Math.floor((Date.now() - d.installCompletedAt) / 86400000)}d ago`;
@@ -3076,14 +3723,25 @@ function renderInstallerJobs() {
           <div class="text-sm font-medium">${dollar((pay.installPaid ? pay.amount / 2 : 0) + (pay.inspectionPaid ? pay.amount / 2 : 0))}<span class="text-haven-muted text-xs"> / ${dollar(pay.amount)}</span></div>
         </div>` : ''}
         <div class="text-sm font-medium ${toneClass} shrink-0 min-w-[140px] text-right">${INSTALLER_STATE_LABEL[s]}</div>
+        ${hasRunbook ? `<button class="btn btn-primary text-xs shrink-0" onclick="event.stopPropagation(); openRunbook('${p.id}')">Runbook →</button>` : ''}
       </div>`;
   };
 
   main.innerHTML = `
     <div class="p-6 max-w-5xl">
-      <div class="mb-5">
-        <h1 class="font-serif text-2xl font-bold text-haven-forest">My Jobs</h1>
-        <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER} · ${installerActiveProjects().length} active, ${completed.length} completed</p>
+      <div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
+        <div>
+          <h1 class="font-serif text-2xl font-bold text-haven-forest">My Jobs</h1>
+          <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER} · ${installerActiveProjects().length} active, ${installerCompletedProjects().length} completed${jobsSearch ? ` · ${active.length + completed.length} match${active.length + completed.length === 1 ? '' : 'es'} for "${jobsSearch}"` : ''}</p>
+        </div>
+        <div class="relative">
+          <input type="text" id="jobsSearch" placeholder="Search name, city, project #..." value="${jobsSearch.replace(/"/g, '&quot;')}"
+            class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-72" />
+          <svg class="absolute left-2.5 top-2 w-4 h-4 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          ${jobsSearch ? `<button onclick="clearJobsSearch()" class="absolute right-2 top-2 text-haven-muted hover:text-haven-ink text-sm">×</button>` : ''}
+        </div>
       </div>
       <div class="flex items-center gap-2 mb-4 flex-wrap">
         ${filterChip('all', 'All active')}
@@ -3110,8 +3768,403 @@ function renderInstallerJobs() {
         </div>` : ''}
     </div>`;
   attachProjectHandlers();
+
+  const s = document.getElementById('jobsSearch');
+  if (s) {
+    s.addEventListener('input', (e) => {
+      jobsSearch = e.target.value;
+      render();
+      setTimeout(() => {
+        const el = document.getElementById('jobsSearch');
+        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+      }, 0);
+    });
+  }
 }
 window.setJobsFilter = (s) => { jobsStateFilter = s; render(); };
+window.clearJobsSearch = () => { jobsSearch = ''; render(); };
+
+// --------------------------------------------------------------
+// INSTALL DAY — one-screen runbook for crew leads
+// --------------------------------------------------------------
+function renderInstallDay() {
+  // If a project is open, show the runbook; otherwise show the landing list
+  if (runbookProjectId) {
+    const p = PROJECTS.find(pr => pr.id === runbookProjectId);
+    if (!p) { runbookProjectId = null; render(); return; }
+    renderRunbook(p);
+    return;
+  }
+
+  // Landing: list of upcoming + in-progress installs for this installer
+  const jobs = PROJECTS.filter(p => p.installer === CURRENT_INSTALLER && runbookState(p));
+  const today = new Date().toISOString().slice(0, 10);
+
+  const todayInstalls = jobs.filter(p => {
+    const d = INSTALLER_PROJECT_DATA[p.id];
+    return d?.installConfirmedDate === today && !d.installCompletedAt;
+  });
+  const upcoming = jobs.filter(p => {
+    const d = INSTALLER_PROJECT_DATA[p.id];
+    return d?.installConfirmedDate && d.installConfirmedDate > today && !d.installCompletedAt;
+  }).sort((a, b) => INSTALLER_PROJECT_DATA[a.id].installConfirmedDate.localeCompare(INSTALLER_PROJECT_DATA[b.id].installConfirmedDate));
+  const inProgress = jobs.filter(p => {
+    const d = INSTALLER_PROJECT_DATA[p.id];
+    return d?.installConfirmedDate && d.installConfirmedDate <= today && !d.installCompletedAt;
+  });
+  const recentlyCompleted = jobs.filter(p => {
+    const d = INSTALLER_PROJECT_DATA[p.id];
+    return d?.installCompletedAt && (Date.now() - d.installCompletedAt) < 7 * 86400000;
+  }).sort((a, b) => INSTALLER_PROJECT_DATA[b.id].installCompletedAt - INSTALLER_PROJECT_DATA[a.id].installCompletedAt);
+
+  const jobCard = (p, mode) => {
+    const d = INSTALLER_PROJECT_DATA[p.id];
+    const rb = runbookState(p);
+    const prog = runbookPhotoProgress(p);
+    const pctRequired = prog.required > 0 ? Math.round((prog.requiredCompleted / prog.required) * 100) : 0;
+
+    let toneColor, statusLabel;
+    if (mode === 'today') { toneColor = '#C44545'; statusLabel = 'TODAY'; }
+    else if (mode === 'in_progress') { toneColor = '#E0A83A'; statusLabel = 'IN PROGRESS'; }
+    else if (mode === 'upcoming') { toneColor = '#3A6EA8'; statusLabel = 'UPCOMING'; }
+    else { toneColor = '#2F7A3E'; statusLabel = 'COMPLETE'; }
+
+    return `
+      <div class="card p-0 overflow-hidden hover-lift cursor-pointer" onclick="openRunbook('${p.id}')">
+        <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between" style="border-left:4px solid ${toneColor}">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] font-bold tracking-wider" style="color:${toneColor}">${statusLabel}</span>
+              <span class="text-xs text-haven-muted">${d.installConfirmedDate}</span>
+            </div>
+            <div class="font-serif font-bold text-lg text-haven-forest mt-0.5">${p.name}</div>
+            <div class="text-xs text-haven-muted">${p.city}, ${p.state} · ${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</div>
+          </div>
+          <svg class="w-5 h-5 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+        <div class="px-4 py-3 grid grid-cols-3 gap-3 text-xs">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-haven-muted">Crew</div>
+            <div class="font-medium mt-0.5">${rb.crewLead.split(' ')[0]} · ${rb.crewSize} crew</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-haven-muted">Photos</div>
+            <div class="font-medium mt-0.5">${prog.completed}/${prog.total}${pctRequired === 100 ? ' ✓' : ''}</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-haven-muted">Equipment</div>
+            <div class="font-medium mt-0.5">${rb.equipmentChecklist.filter(e => e.checked).length}/${rb.equipmentChecklist.length}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  main.innerHTML = `
+    <div class="p-6 max-w-[1100px]">
+      <div class="mb-6">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Install Day</h1>
+        <p class="text-sm text-haven-muted mt-1">${CURRENT_INSTALLER} · Tap a job to open the runbook</p>
+      </div>
+
+      ${todayInstalls.length > 0 ? `
+        <div class="mb-6">
+          <h2 class="font-serif font-bold text-haven-danger mb-3">Today (${todayInstalls.length})</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            ${todayInstalls.map(p => jobCard(p, 'today')).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${inProgress.length > 0 ? `
+        <div class="mb-6">
+          <h2 class="font-serif font-bold text-haven-warn mb-3">In progress (${inProgress.length})</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            ${inProgress.map(p => jobCard(p, 'in_progress')).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${upcoming.length > 0 ? `
+        <div class="mb-6">
+          <h2 class="font-serif font-bold text-haven-forest mb-3">Upcoming (${upcoming.length})</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            ${upcoming.slice(0, 8).map(p => jobCard(p, 'upcoming')).join('')}
+          </div>
+          ${upcoming.length > 8 ? `<div class="text-xs text-haven-muted mt-3 text-center">Showing 8 of ${upcoming.length}</div>` : ''}
+        </div>
+      ` : ''}
+
+      ${recentlyCompleted.length > 0 ? `
+        <div class="mb-6">
+          <h2 class="font-serif font-bold text-haven-ok mb-3">Recently completed (${recentlyCompleted.length})</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            ${recentlyCompleted.slice(0, 4).map(p => jobCard(p, 'complete')).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${todayInstalls.length === 0 && inProgress.length === 0 && upcoming.length === 0 && recentlyCompleted.length === 0 ? `
+        <div class="card text-center py-12">
+          <div class="text-haven-muted">No installs scheduled yet.</div>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function renderRunbook(p) {
+  const d = INSTALLER_PROJECT_DATA[p.id];
+  const rb = runbookState(p);
+  const prog = runbookPhotoProgress(p);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const phase = rb.phase; // 'upcoming' | 'in_progress' | 'complete'
+  const address = `${p.city}, ${p.state} ${p.zip}`;
+  const mapsUrl = `https://maps.google.com/?q=${encodeURIComponent(address)}`;
+  const telHref = 'tel:' + rb.customerPhone.replace(/[^0-9]/g, '');
+
+  // Equipment checklist progress
+  const eqDone = rb.equipmentChecklist.filter(e => e.checked).length;
+  const eqTotal = rb.equipmentChecklist.length;
+
+  // Photo breakdown by phase
+  const photosByPhase = { pre: [], during: [], post: [] };
+  RUNBOOK_PHOTO_SPEC.forEach(spec => {
+    photosByPhase[spec.phase].push({ ...spec, ...rb.photoUploads[spec.category] });
+  });
+
+  const phaseLabel = {
+    upcoming: 'Upcoming install',
+    in_progress: 'In progress',
+    complete: 'Install complete',
+  }[phase];
+
+  const phaseColor = {
+    upcoming: '#3A6EA8',
+    in_progress: '#E0A83A',
+    complete: '#2F7A3E',
+  }[phase];
+
+  const photoRow = (item) => {
+    const tone = item.uploaded ? 'ok' : item.required ? 'warn' : 'neutral';
+    const border = item.uploaded ? '#2F7A3E' : item.required ? '#E0A83A' : '#E4E6E0';
+    const bg = item.uploaded ? '#F2F9F3' : 'white';
+    return `
+      <div class="flex items-center gap-3 p-3 rounded-md border transition-all" style="border-color:${border};background:${bg};">
+        <div class="w-14 h-14 rounded-md shrink-0 flex items-center justify-center"
+             style="background:${item.uploaded ? `var(--${item.gradient}, linear-gradient(135deg,#013300,#2F7A3E))` : '#F5F5F0'};">
+          ${item.uploaded ? `<span style="color:white;font-size:18px;">✓</span>` : `<span style="color:#C4C4C0;font-size:22px;">+</span>`}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="font-medium text-sm">${item.label}</div>
+          <div class="text-[11px] text-haven-muted mt-0.5">
+            ${item.uploaded
+              ? `Uploaded ${Math.floor((Date.now() - item.uploadedAt) / 86400000)}d ago`
+              : item.required ? 'Required' : 'Optional'}
+          </div>
+        </div>
+        <button class="btn ${item.uploaded ? 'btn-secondary' : 'btn-primary'} text-xs shrink-0" onclick="toggleRunbookPhoto('${p.id}', '${item.category}')">${item.uploaded ? 'Retake' : 'Upload'}</button>
+      </div>
+    `;
+  };
+
+  const systemSpec = [
+    { label: 'Solar', value: `${p.solar} kW · ${panelCount(p)} panels` },
+    p.battery ? { label: 'Battery', value: `${p.battery} kWh · ${batteryModel(p)}` } : null,
+    { label: 'Inverter', value: inverterModel(p) },
+    { label: 'Utility', value: `${p.utility} · ${p.ahj}` },
+  ].filter(Boolean);
+
+  main.innerHTML = `
+    <div class="p-6 max-w-[900px]">
+      <button class="text-sm text-haven-muted hover:text-haven-forest flex items-center gap-1 mb-4" onclick="exitRunbook()">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        Back to Install Day
+      </button>
+
+      <!-- Header -->
+      <div class="card mb-4" style="border-left:4px solid ${phaseColor};">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider font-bold mb-1" style="color:${phaseColor}">${phaseLabel}</div>
+            <h1 class="font-serif text-2xl font-bold text-haven-forest">${p.name}</h1>
+            <a href="${mapsUrl}" target="_blank" class="text-sm text-haven-forest hover:underline mt-1 inline-flex items-center gap-1">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+              ${address}
+            </a>
+          </div>
+          <div class="text-right">
+            <div class="text-xs text-haven-muted uppercase tracking-wider">Install Date</div>
+            <div class="font-serif font-bold text-xl text-haven-forest">${d.installConfirmedDate}</div>
+            <div class="text-xs text-haven-muted mt-1">${p.projectNumber}</div>
+          </div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-haven-border grid grid-cols-3 gap-3 text-sm">
+          <a href="${telHref}" class="flex items-center gap-2 hover:text-haven-forest">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+            <div>
+              <div class="text-xs text-haven-muted">Customer</div>
+              <div class="font-medium">${rb.customerPhone}</div>
+            </div>
+          </a>
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            <div>
+              <div class="text-xs text-haven-muted">Crew</div>
+              <div class="font-medium">${rb.crewLead} · ${rb.crewSize} crew</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            <div>
+              <div class="text-xs text-haven-muted">Coord</div>
+              <div class="font-medium">${p.coord.split(' ')[0]}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- System spec -->
+      <div class="card mb-4">
+        <h2 class="font-serif font-bold text-haven-forest mb-3">System Spec</h2>
+        <div class="grid grid-cols-2 gap-4">
+          ${systemSpec.map(s => `
+            <div>
+              <div class="text-xs text-haven-muted uppercase tracking-wider">${s.label}</div>
+              <div class="font-medium mt-0.5">${s.value}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Site notes -->
+      <div class="card mb-4">
+        <h2 class="font-serif font-bold text-haven-forest mb-3">Site Notes</h2>
+        <ul class="space-y-2 text-sm">
+          ${rb.siteNotes.map(n => `
+            <li class="flex items-start gap-2">
+              <svg class="w-4 h-4 text-haven-muted mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              ${n}
+            </li>
+          `).join('')}
+        </ul>
+      </div>
+
+      <!-- Equipment checklist -->
+      <div class="card mb-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-serif font-bold text-haven-forest">Equipment Checklist</h2>
+          <span class="text-xs text-haven-muted tabular-nums">${eqDone}/${eqTotal}</span>
+        </div>
+        <div class="space-y-2">
+          ${rb.equipmentChecklist.map((item, idx) => `
+            <label class="flex items-center gap-3 p-2 rounded-md hover:bg-haven-bg cursor-pointer">
+              <div class="checkbox ${item.checked ? 'checked' : ''}" onclick="toggleRunbookEquipment('${p.id}', ${idx})">${item.checked ? '✓' : ''}</div>
+              <span class="text-sm ${item.checked ? 'line-through text-haven-muted' : ''}">${item.label}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+
+      <!-- Photo requirements with phase grouping -->
+      <div class="card mb-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-serif font-bold text-haven-forest">Photos</h2>
+          <div class="text-sm text-haven-muted">
+            <span class="font-medium ${prog.requiredCompleted === prog.required ? 'text-haven-ok' : 'text-haven-warn'}">${prog.requiredCompleted}/${prog.required} required</span>
+            · ${prog.completed}/${prog.total} total
+          </div>
+        </div>
+        <div class="relative h-2 rounded-full mb-5" style="background:#E4E6E0;">
+          <div class="absolute inset-y-0 left-0 rounded-full" style="width:${prog.required > 0 ? (prog.requiredCompleted / prog.required * 100) : 0}%; background:${prog.requiredCompleted === prog.required ? '#2F7A3E' : '#E0A83A'};"></div>
+        </div>
+
+        <div class="mb-5">
+          <div class="text-xs uppercase tracking-wider font-bold text-haven-muted mb-2">Pre-install (${photosByPhase.pre.filter(x => x.uploaded).length}/${photosByPhase.pre.length})</div>
+          <div class="space-y-2">
+            ${photosByPhase.pre.map(photoRow).join('')}
+          </div>
+        </div>
+
+        <div class="mb-5">
+          <div class="text-xs uppercase tracking-wider font-bold text-haven-muted mb-2">During install (${photosByPhase.during.filter(x => x.uploaded).length}/${photosByPhase.during.length})</div>
+          <div class="space-y-2">
+            ${photosByPhase.during.map(photoRow).join('')}
+          </div>
+        </div>
+
+        <div>
+          <div class="text-xs uppercase tracking-wider font-bold text-haven-muted mb-2">Post-install (${photosByPhase.post.filter(x => x.uploaded).length}/${photosByPhase.post.length})</div>
+          <div class="space-y-2">
+            ${photosByPhase.post.map(photoRow).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Signoff -->
+      <div class="card mb-4" style="${rb.signoffAt ? 'border-left:4px solid #2F7A3E;' : ''}">
+        <h2 class="font-serif font-bold text-haven-forest mb-2">Install Completion Signoff</h2>
+        ${rb.signoffAt ? `
+          <div class="flex items-center gap-2 text-haven-ok">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span class="font-medium">Signed by ${rb.signoffName} on ${new Date(rb.signoffAt).toLocaleString()}</span>
+          </div>
+          <div class="text-xs text-haven-muted mt-2">Install submitted to Haven. First 50% payment ($${((installerPayoutAmount(p) || 0) / 2).toLocaleString()}) triggers review. Inspection final payment follows.</div>
+        ` : prog.requiredCompleted === prog.required && eqDone === eqTotal ? `
+          <p class="text-sm text-haven-muted mb-3">All required photos uploaded, equipment checklist complete. Sign below to mark this install complete and trigger the 50% install payment.</p>
+          <div class="flex items-center gap-3">
+            <input id="signoffInput-${p.id}" type="text" placeholder="Type your full name" class="flex-1 px-3 py-2 border border-haven-border rounded-md text-sm bg-white" />
+            <button class="btn btn-accent" onclick="submitRunbookSignoff('${p.id}')">Sign and submit</button>
+          </div>
+        ` : `
+          <p class="text-sm text-haven-muted">Complete required photos and equipment checklist before signing off.</p>
+          <div class="flex items-center gap-4 mt-3 text-xs">
+            <div class="${prog.requiredCompleted === prog.required ? 'text-haven-ok' : 'text-haven-warn'}">
+              ${prog.requiredCompleted === prog.required ? '✓' : '○'} ${prog.requiredCompleted}/${prog.required} required photos
+            </div>
+            <div class="${eqDone === eqTotal ? 'text-haven-ok' : 'text-haven-warn'}">
+              ${eqDone === eqTotal ? '✓' : '○'} ${eqDone}/${eqTotal} equipment items
+            </div>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+window.openRunbook = (projectId) => { runbookProjectId = projectId; render(); };
+window.exitRunbook = () => { runbookProjectId = null; render(); };
+window.toggleRunbookEquipment = (projectId, idx) => {
+  event.stopPropagation();
+  const rb = RUNBOOK_STATE[projectId];
+  if (!rb) return;
+  rb.equipmentChecklist[idx].checked = !rb.equipmentChecklist[idx].checked;
+  render();
+};
+window.toggleRunbookPhoto = (projectId, category) => {
+  const rb = RUNBOOK_STATE[projectId];
+  if (!rb) return;
+  const upload = rb.photoUploads[category];
+  if (!upload) return;
+  upload.uploaded = !upload.uploaded;
+  upload.uploadedAt = upload.uploaded ? Date.now() : null;
+  render();
+};
+window.submitRunbookSignoff = (projectId) => {
+  const rb = RUNBOOK_STATE[projectId];
+  if (!rb) return;
+  const input = document.getElementById(`signoffInput-${projectId}`);
+  const name = input ? input.value.trim() : '';
+  if (!name) { alert('Please type your full name.'); return; }
+  rb.signoffName = name;
+  rb.signoffAt = Date.now();
+  // Also mark install completed on INSTALLER_PROJECT_DATA
+  const d = INSTALLER_PROJECT_DATA[projectId];
+  if (d && !d.installCompletedAt) d.installCompletedAt = Date.now();
+  rb.phase = 'complete';
+  render();
+};
 
 // --------------------------------------------------------------
 // PAYMENTS
@@ -3787,6 +4840,249 @@ let postInstallFilters = {
 };
 let postInstallOpenFilter = null; // column key currently showing its filter dropdown
 
+// ============================================================
+// BLOCKERS VIEW
+// ============================================================
+let blockerCategoryFilter = 'all';    // all | customer | ahj | utility | installer | internal
+let blockerAgeFilter = 'all';          // all | fresh | stale | ancient
+let blockerSearch = '';
+let blockerSort = { col: 'age', dir: 'desc' };
+
+function renderBlockers() {
+  // Open blockers only, scoped to visible projects
+  const visibleIds = new Set(visibleProjects().map(p => p.id));
+  let open = BLOCKERS.filter(b => !b.resolvedAt && visibleIds.has(b.projectId));
+
+  // Apply filters
+  if (blockerCategoryFilter !== 'all') open = open.filter(b => b.category === blockerCategoryFilter);
+  if (blockerAgeFilter === 'fresh') open = open.filter(b => b.openedDaysAgo < 7);
+  else if (blockerAgeFilter === 'stale') open = open.filter(b => b.openedDaysAgo >= 7 && b.openedDaysAgo < 30);
+  else if (blockerAgeFilter === 'ancient') open = open.filter(b => b.openedDaysAgo >= 30);
+
+  if (blockerSearch.trim()) {
+    const q = blockerSearch.trim().toLowerCase();
+    open = open.filter(b => {
+      const p = PROJECTS.find(pp => pp.id === b.projectId);
+      if (!p) return false;
+      return p.name.toLowerCase().includes(q) ||
+        p.city.toLowerCase().includes(q) ||
+        p.projectNumber.toLowerCase().includes(q) ||
+        b.label.toLowerCase().includes(q);
+    });
+  }
+
+  // Sort
+  const sortAcc = {
+    age: b => b.openedDaysAgo,
+    project: b => (PROJECTS.find(p => p.id === b.projectId)?.name || '').toLowerCase(),
+    category: b => b.category,
+    blocker: b => b.label,
+  };
+  const acc = sortAcc[blockerSort.col] || sortAcc.age;
+  const dir = blockerSort.dir === 'asc' ? 1 : -1;
+  open.sort((a, b) => {
+    const av = acc(a), bv = acc(b);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+
+  // Totals for filter chips
+  const allOpen = BLOCKERS.filter(b => !b.resolvedAt && visibleIds.has(b.projectId));
+  const catCounts = { all: allOpen.length, customer: 0, ahj: 0, utility: 0, installer: 0, internal: 0 };
+  allOpen.forEach(b => { if (catCounts[b.category] !== undefined) catCounts[b.category]++; });
+
+  const fresh = allOpen.filter(b => b.openedDaysAgo < 7).length;
+  const stale = allOpen.filter(b => b.openedDaysAgo >= 7 && b.openedDaysAgo < 30).length;
+  const ancient = allOpen.filter(b => b.openedDaysAgo >= 30).length;
+
+  // Unique blocked projects
+  const blockedProjectIds = new Set(allOpen.map(b => b.projectId));
+
+  const CAP = 200;
+  const shown = open.slice(0, CAP);
+  const extra = open.length - shown.length;
+
+  // Column header helper
+  function th(key, label) {
+    const isSorted = blockerSort.col === key;
+    const icon = isSorted ? (blockerSort.dir === 'asc' ? '↑' : '↓') : '<span style="color:#C4C4C0">↕</span>';
+    return `<th class="px-3 py-2.5 text-left"><button class="uppercase tracking-wide text-xs text-haven-muted hover:text-haven-forest flex items-center gap-1" onclick="toggleBlockerSort('${key}')">${label} ${icon}</button></th>`;
+  }
+
+  const catChip = (key, label, count) => {
+    const color = key === 'all' ? '#013300' : BLOCKER_CATEGORY_COLORS[key];
+    const active = blockerCategoryFilter === key;
+    return `<button class="filter-chip ${active ? 'active' : ''}" onclick="setBlockerCategory('${key}')" style="${!active && count > 0 ? `border-color:${color};color:${color};` : ''}">${label} <span class="opacity-70 ml-1">${count}</span></button>`;
+  };
+
+  const ageChip = (key, label, count) => {
+    const active = blockerAgeFilter === key;
+    return `<button class="filter-chip ${active ? 'active' : ''}" onclick="setBlockerAge('${key}')">${label} <span class="opacity-70 ml-1">${count}</span></button>`;
+  };
+
+  main.innerHTML = `
+    <div class="p-6 max-w-[1400px]">
+      <div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
+        <div>
+          <h1 class="font-serif text-2xl font-bold text-haven-forest">Blockers</h1>
+          <p class="text-sm text-haven-muted mt-1">${allOpen.length} open blocker${allOpen.length === 1 ? '' : 's'} across ${blockedProjectIds.size} project${blockedProjectIds.size === 1 ? '' : 's'}</p>
+        </div>
+        <div class="relative">
+          <input type="text" id="blockerSearch" placeholder="Search project or blocker..." value="${blockerSearch.replace(/"/g, '&quot;')}"
+            class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-72" />
+          <svg class="absolute left-2.5 top-2 w-4 h-4 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+          </svg>
+          ${blockerSearch ? `<button onclick="clearBlockerSearch()" class="absolute right-2 top-2 text-haven-muted hover:text-haven-ink text-sm">×</button>` : ''}
+        </div>
+      </div>
+
+      <!-- KPI tiles -->
+      <div class="grid grid-cols-4 gap-4 mb-5">
+        <div class="card px-4 py-3" style="border-left:3px solid #013300;">
+          <div class="text-[11px] uppercase tracking-wider text-haven-muted">Open Blockers</div>
+          <div class="font-serif font-bold text-2xl mt-0.5 text-haven-forest">${allOpen.length}</div>
+          <div class="text-xs text-haven-muted">across ${blockedProjectIds.size} projects</div>
+        </div>
+        <div class="card px-4 py-3" style="border-left:3px solid #2F7A3E;">
+          <div class="text-[11px] uppercase tracking-wider text-haven-muted">Fresh (&lt;7d)</div>
+          <div class="font-serif font-bold text-2xl mt-0.5 text-haven-forest">${fresh}</div>
+          <div class="text-xs text-haven-muted">normal follow-up</div>
+        </div>
+        <div class="card px-4 py-3" style="border-left:3px solid #E0A83A;">
+          <div class="text-[11px] uppercase tracking-wider text-haven-muted">Stale (7-30d)</div>
+          <div class="font-serif font-bold text-2xl mt-0.5 text-haven-warn">${stale}</div>
+          <div class="text-xs text-haven-muted">needs escalation</div>
+        </div>
+        <div class="card px-4 py-3" style="border-left:3px solid #C44545;">
+          <div class="text-[11px] uppercase tracking-wider text-haven-muted">Ancient (30d+)</div>
+          <div class="font-serif font-bold text-2xl mt-0.5 text-haven-danger">${ancient}</div>
+          <div class="text-xs text-haven-muted">decision required</div>
+        </div>
+      </div>
+
+      <!-- Category filter chips -->
+      <div class="mb-2">
+        <div class="text-[11px] uppercase tracking-wider text-haven-muted mb-1.5">By who owns resolution</div>
+        <div class="flex items-center gap-2 flex-wrap">
+          ${catChip('all', 'All', catCounts.all)}
+          ${catChip('customer', 'Customer', catCounts.customer)}
+          ${catChip('ahj', 'AHJ', catCounts.ahj)}
+          ${catChip('utility', 'Utility', catCounts.utility)}
+          ${catChip('installer', 'Installer', catCounts.installer)}
+          ${catChip('internal', 'Internal', catCounts.internal)}
+        </div>
+      </div>
+
+      <!-- Age filter chips -->
+      <div class="mb-5">
+        <div class="text-[11px] uppercase tracking-wider text-haven-muted mb-1.5">By age</div>
+        <div class="flex items-center gap-2 flex-wrap">
+          ${ageChip('all', 'Any age', allOpen.length)}
+          ${ageChip('fresh', 'Fresh', fresh)}
+          ${ageChip('stale', 'Stale', stale)}
+          ${ageChip('ancient', 'Ancient', ancient)}
+        </div>
+      </div>
+
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-haven-bg border-b border-haven-border">
+            <tr>
+              ${th('category', 'Category')}
+              ${th('blocker', 'Blocker')}
+              ${th('project', 'Project')}
+              <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">Stage</span></th>
+              <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">Resolution</span></th>
+              <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">Coord</span></th>
+              ${th('age', 'Age')}
+              <th class="px-3 py-2.5"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${shown.length === 0 ? `<tr><td colspan="8" class="px-4 py-8 text-center text-haven-muted">No blockers match</td></tr>` : shown.map(b => {
+              const p = PROJECTS.find(pp => pp.id === b.projectId);
+              if (!p) return '';
+              const tone = blockerAgeTone(b);
+              const ageColor = tone === 'danger' ? 'text-haven-danger' : tone === 'warn' ? 'text-haven-warn' : 'text-haven-muted';
+              const catColor = BLOCKER_CATEGORY_COLORS[b.category];
+              return `
+                <tr class="border-b border-haven-border hover:bg-haven-bg">
+                  <td class="px-3 py-2.5"><div class="flex items-center gap-1.5"><div class="w-2 h-2 rounded-full" style="background:${catColor}"></div><span class="text-xs">${BLOCKER_CATEGORY_LABELS[b.category]}</span></div></td>
+                  <td class="px-3 py-2.5 font-medium text-haven-forest">${b.label}</td>
+                  <td class="px-3 py-2.5 cursor-pointer" data-project-id="${p.id}">
+                    <div class="font-medium text-haven-ink">${p.name}</div>
+                    <div class="text-[11px] text-haven-muted">${p.projectNumber} · ${p.city}, ${p.state}</div>
+                  </td>
+                  <td class="px-3 py-2.5"><span class="badge badge-neutral">${STAGE_LABELS[p.stage]}</span></td>
+                  <td class="px-3 py-2.5 text-xs text-haven-muted"><span class="truncate block max-w-[260px]" title="${b.resolution}">${b.resolution}</span></td>
+                  <td class="px-3 py-2.5">${avatar(b.openedBy, 18)} <span class="text-xs ml-1 align-middle">${b.openedBy.split(' ')[0]}</span></td>
+                  <td class="px-3 py-2.5 tabular-nums font-medium ${ageColor}">${b.openedDaysAgo}d</td>
+                  <td class="px-3 py-2.5 text-right"><button class="text-xs text-haven-forest hover:underline font-medium" onclick="resolveBlocker('${b.id}')">Resolve</button></td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        ${extra > 0 ? `<div class="p-3 text-center text-xs text-haven-muted border-t border-haven-border">Showing first ${CAP} of ${open.length} — ${blockerSort.col} ${blockerSort.dir === 'desc' ? 'desc' : 'asc'}</div>` : ''}
+      </div>
+    </div>
+  `;
+
+  attachProjectHandlers();
+
+  const s = document.getElementById('blockerSearch');
+  if (s) {
+    s.addEventListener('input', (e) => {
+      blockerSearch = e.target.value;
+      render();
+      setTimeout(() => {
+        const el = document.getElementById('blockerSearch');
+        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+      }, 0);
+    });
+  }
+}
+
+window.setBlockerCategory = (c) => { blockerCategoryFilter = c; render(); };
+window.setBlockerAge = (a) => { blockerAgeFilter = a; render(); };
+window.clearBlockerSearch = () => { blockerSearch = ''; render(); };
+window.goToBlockers = () => { currentView = 'blockers'; blockerCategoryFilter = 'all'; blockerAgeFilter = 'all'; blockerSearch = ''; renderNav(); render(); };
+window.toggleBlockerSort = (col) => {
+  if (blockerSort.col === col) blockerSort.dir = blockerSort.dir === 'asc' ? 'desc' : 'asc';
+  else blockerSort = { col, dir: 'desc' };
+  render();
+};
+window.resolveBlocker = (id) => {
+  const b = BLOCKERS.find(bl => bl.id === id);
+  if (!b) return;
+  b.resolvedAt = Date.now();
+  // Keep index in sync
+  const list = BLOCKERS_BY_PROJECT[b.projectId] || [];
+  // nothing to remove since index points at same objects — filtering happens in getProjectBlockers
+  render();
+};
+
+window.openAddBlocker = (projectId) => {
+  const codes = Object.keys(BLOCKER_CATALOG);
+  const catalogList = codes.map((code, i) => `${i + 1}. ${BLOCKER_CATALOG[code].label} (${BLOCKER_CATALOG[code].category})`).join('\n');
+  const picked = prompt(`Add blocker — enter number:\n\n${catalogList}`);
+  if (!picked) return;
+  const idx = parseInt(picked, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= codes.length) return;
+  const code = codes[idx];
+  pushBlocker(projectId, code, 0, null, 'Shane Brennan');
+  // Update index
+  const last = BLOCKERS[BLOCKERS.length - 1];
+  if (!BLOCKERS_BY_PROJECT[projectId]) BLOCKERS_BY_PROJECT[projectId] = [];
+  BLOCKERS_BY_PROJECT[projectId].push(last);
+  // Reopen modal to show new blocker
+  openProjectModal(projectId);
+};
+
+// ============================================================
+// POST-INSTALL
+// ============================================================
 function renderPostInstall() {
   let recs = POST_INSTALL.records.filter(r => !r.icfComplete);
 
@@ -4506,6 +5802,43 @@ function openProjectModal(projectId) {
     </div>
   ` : '';
 
+  // Blockers block — visible to internal users; shows open blockers + quick-add
+  const projectBlockers = getProjectBlockers(p.id);
+  const blockersBlock = viewMode === 'internal' && p.stage !== 'completed' ? `
+    <div class="card mb-5 ${projectBlockers.length > 0 ? 'border-l-4 border-l-haven-warn' : ''}">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-serif font-bold text-haven-forest">Blockers</h3>
+        <button class="text-xs text-haven-forest hover:underline font-medium" onclick="openAddBlocker('${p.id}')">+ Add blocker</button>
+      </div>
+      ${projectBlockers.length === 0 ? `
+        <div class="text-sm text-haven-muted italic">No active blockers</div>
+      ` : `
+        <div class="space-y-2">
+          ${projectBlockers.map(b => {
+            const tone = blockerAgeTone(b);
+            const ageClass = tone === 'danger' ? 'text-haven-danger' : tone === 'warn' ? 'text-haven-warn' : 'text-haven-muted';
+            const catColor = BLOCKER_CATEGORY_COLORS[b.category];
+            return `
+              <div class="flex items-start justify-between gap-3 p-3 rounded-md" style="background:#FAFAF7;border:1px solid #E4E6E0;">
+                <div class="flex items-start gap-3 flex-1">
+                  <div class="mt-1 w-2 h-2 rounded-full shrink-0" style="background:${catColor}"></div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-haven-ink">${b.label} <span class="text-xs text-haven-muted font-normal ml-1">${BLOCKER_CATEGORY_LABELS[b.category]}</span></div>
+                    <div class="text-xs text-haven-muted mt-0.5">${b.resolution}</div>
+                    <div class="text-[11px] text-haven-muted mt-1">Opened ${b.openedDaysAgo}d ago by ${b.openedBy}</div>
+                  </div>
+                </div>
+                <div class="flex flex-col items-end gap-1 shrink-0">
+                  <span class="tabular-nums text-sm font-semibold ${ageClass}">${b.openedDaysAgo}d</span>
+                  <button class="text-xs text-haven-forest hover:underline" onclick="resolveBlocker('${b.id}'); closeModal();">Resolve</button>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
+      `}
+    </div>
+  ` : '';
+
   document.getElementById('projectModalContent').innerHTML = `
     <div class="sticky top-0 bg-haven-bg px-6 py-4 border-b border-haven-border flex items-center justify-between z-10">
       <div class="flex items-center gap-3">
@@ -4521,7 +5854,7 @@ function openProjectModal(projectId) {
         <div class="text-right"><div class="text-xs text-haven-muted uppercase tracking-wide">Current Stage</div>
         <div class="font-serif font-bold text-lg text-haven-forest">${p.stage === 'completed' ? 'Completed' : STAGE_LABELS[p.stage]}</div>${slaBadge}</div>
       </div>
-      ${healthBlock}${coordAssignmentBlock}${installerAckBlock}${dispatchBlock}${addersBlock}
+      ${healthBlock}${blockersBlock}${coordAssignmentBlock}${installerAckBlock}${dispatchBlock}${addersBlock}
 
       <div class="card mb-5">
         <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
