@@ -836,6 +836,9 @@ let currentCoord = 'Shane Brennan';
 let currentView = 'pipeline';
 let photoFilter = 'all';
 let pipelineFilter = 'all'; // all | ready_to_advance | at_risk
+let pipelineSearch = '';
+let pipelineStateFilter = 'all'; // all | CA | MA
+let pipelineDrilldownStage = null; // null means show full kanban; otherwise show drilldown for this stage
 let taskBatchMode = false;
 let assignedInstallers = {};
 let assignedCoords = {};
@@ -1005,6 +1008,8 @@ function renderNav() {
     el.addEventListener('click', () => {
       currentView = el.dataset.view;
       pipelineFilter = 'all';
+      pipelineDrilldownStage = null;
+      pipelineSearch = '';
       renderNav();
       render();
     });
@@ -1253,29 +1258,34 @@ window.switchToCoord = (c) => {
 // PIPELINE — kanban with ready-to-advance filter
 // ============================================================
 function renderPipeline() {
-  let active = visibleProjects().filter(p => p.stage !== 'completed');
-
-  if (pipelineFilter === 'ready_to_advance') {
-    active = active.filter(p => isReadyToAdvance(p));
-  } else if (pipelineFilter === 'at_risk') {
-    active = active.filter(p => p.riskLevel === 'high');
+  // If drilled into a stage, render that instead
+  if (pipelineDrilldownStage) {
+    renderPipelineDrilldown();
+    return;
   }
 
-  const readyCount = visibleProjects().filter(p => p.stage !== 'completed' && isReadyToAdvance(p)).length;
-  const atRiskCount = visibleProjects().filter(p => p.stage !== 'completed' && p.riskLevel === 'high').length;
-  const totalCount = visibleProjects().filter(p => p.stage !== 'completed').length;
-
+  const activeAll = pipelineFilteredProjects();
   const byStage = {};
-  STAGE_ORDER.forEach(s => byStage[s] = active.filter(p => p.stage === s));
+  STAGE_ORDER.forEach(s => byStage[s] = activeAll.filter(p => p.stage === s));
+
+  // Counts that don't depend on current filter (for filter-chip counts they should reflect available pool)
+  const stateFilteredAll = visibleProjects().filter(p => p.stage !== 'completed' && (pipelineStateFilter === 'all' || p.state === pipelineStateFilter));
+  const totalCount = stateFilteredAll.length;
+  const readyCount = stateFilteredAll.filter(p => isReadyToAdvance(p)).length;
+  const atRiskCount = stateFilteredAll.filter(p => p.riskLevel === 'high').length;
 
   const coordLabel = currentCoord === '__all__' ? 'All coordinators' : currentCoord;
 
   main.innerHTML = `
     <div class="p-6">
-      <div class="flex items-center justify-between mb-4 max-w-[1600px]">
+      <div class="flex items-start justify-between mb-4 gap-4 flex-wrap">
         <div>
           <h1 class="font-serif text-2xl font-bold text-haven-forest">Install Pipeline</h1>
-          <p class="text-sm text-haven-muted mt-1">${coordLabel} · <span class="text-haven-muted">Drag cards between columns to move projects</span></p>
+          <p class="text-sm text-haven-muted mt-1">${coordLabel} · <span class="text-haven-muted">Click a stage to drill in, or drag cards to move projects</span></p>
+        </div>
+        <div class="flex items-center gap-3">
+          ${renderPipelineSearch()}
+          ${renderPipelineStateToggle()}
         </div>
       </div>
 
@@ -1283,14 +1293,18 @@ function renderPipeline() {
         <button class="filter-chip ${pipelineFilter === 'all' ? 'active' : ''}" onclick="setPipelineFilter('all')">All <span class="opacity-70 ml-1">${totalCount}</span></button>
         <button class="filter-chip ${pipelineFilter === 'ready_to_advance' ? 'active' : ''}" onclick="setPipelineFilter('ready_to_advance')" style="${pipelineFilter !== 'ready_to_advance' && readyCount > 0 ? 'border-color:#2F7A3E;color:#2F7A3E;' : ''}">✓ Ready to advance <span class="opacity-70 ml-1">${readyCount}</span></button>
         <button class="filter-chip ${pipelineFilter === 'at_risk' ? 'active' : ''}" onclick="setPipelineFilter('at_risk')" style="${pipelineFilter !== 'at_risk' && atRiskCount > 0 ? 'border-color:#C44545;color:#C44545;' : ''}">⚠ At risk <span class="opacity-70 ml-1">${atRiskCount}</span></button>
+        ${pipelineSearch ? `<span class="text-xs text-haven-muted ml-2">${activeAll.length} match${activeAll.length === 1 ? '' : 'es'} for "${pipelineSearch}"</span>` : ''}
       </div>
 
       <div class="overflow-x-auto pb-4">
         <div class="grid gap-3 min-w-[1400px]" style="grid-template-columns: repeat(8, minmax(0, 1fr));">
           ${STAGE_ORDER.map(stage => `
             <div class="flex flex-col min-h-[60vh]">
-              <div class="flex items-center justify-between px-2 pb-2 border-b-2 border-haven-forest mb-2">
-                <div class="font-serif font-bold text-sm text-haven-forest">${STAGE_LABELS[stage]}</div>
+              <div class="flex items-center justify-between px-2 pb-2 border-b-2 border-haven-forest mb-2 cursor-pointer hover:bg-haven-bg rounded-t-sm transition-colors" onclick="drilldownStage('${stage}')" title="Click to drill in">
+                <div class="font-serif font-bold text-sm text-haven-forest flex items-center gap-1.5">
+                  ${STAGE_LABELS[stage]}
+                  <svg class="w-3 h-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                </div>
                 <div class="text-xs text-haven-muted">${byStage[stage].length}</div>
               </div>
               <div class="space-y-2 flex-1 drop-zone rounded-md transition-colors" data-stage="${stage}">
@@ -1303,6 +1317,142 @@ function renderPipeline() {
   `;
   attachProjectHandlers();
   attachDragHandlers();
+  attachPipelineSearchHandler();
+}
+
+function renderPipelineSearch() {
+  return `
+    <div class="relative">
+      <input type="text" id="pipelineSearchInput" placeholder="Search projects..." value="${pipelineSearch.replace(/"/g, '&quot;')}"
+        class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-64" />
+      <svg class="absolute left-2.5 top-2 w-4 h-4 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+      </svg>
+      ${pipelineSearch ? `<button onclick="clearPipelineSearch()" class="absolute right-2 top-2 text-haven-muted hover:text-haven-ink text-sm">×</button>` : ''}
+    </div>`;
+}
+
+function renderPipelineStateToggle() {
+  const btn = (key, label) => `<button class="view-toggle-btn ${pipelineStateFilter === key ? 'active' : ''}" onclick="setPipelineState('${key}')">${label}</button>`;
+  return `
+    <div class="view-toggle">
+      ${btn('all', 'All')}
+      ${btn('CA', 'CA')}
+      ${btn('MA', 'MA')}
+    </div>`;
+}
+
+function attachPipelineSearchHandler() {
+  const s = document.getElementById('pipelineSearchInput');
+  if (!s) return;
+  s.addEventListener('input', (e) => {
+    pipelineSearch = e.target.value;
+    render();
+    setTimeout(() => {
+      const el = document.getElementById('pipelineSearchInput');
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    }, 0);
+  });
+}
+
+window.setPipelineState = (key) => { pipelineStateFilter = key; render(); };
+window.clearPipelineSearch = () => { pipelineSearch = ''; render(); };
+window.drilldownStage = (stage) => { pipelineDrilldownStage = stage; render(); };
+window.exitDrilldown = () => { pipelineDrilldownStage = null; render(); };
+
+function renderPipelineDrilldown() {
+  const stage = pipelineDrilldownStage;
+  const buckets = SUB_BUCKETS[stage] || [];
+  // Apply the same pipeline filter pipeline
+  const all = pipelineFilteredProjects().filter(p => p.stage === stage);
+
+  // Group by sub-bucket
+  const byBucket = {};
+  buckets.forEach(b => byBucket[b.key] = []);
+  all.forEach(p => {
+    const k = subBucketForProject(p);
+    if (k && byBucket[k] !== undefined) byBucket[k].push(p);
+  });
+
+  const stateFilteredAll = visibleProjects().filter(p => p.stage === stage && (pipelineStateFilter === 'all' || p.state === pipelineStateFilter));
+
+  main.innerHTML = `
+    <div class="p-6 max-w-[1400px]">
+      <div class="flex items-start justify-between mb-4 gap-4 flex-wrap">
+        <div>
+          <button class="text-sm text-haven-muted hover:text-haven-forest flex items-center gap-1 mb-2" onclick="exitDrilldown()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            Back to pipeline
+          </button>
+          <h1 class="font-serif text-2xl font-bold text-haven-forest">${STAGE_LABELS[stage]}</h1>
+          <p class="text-sm text-haven-muted mt-1">${stateFilteredAll.length} project${stateFilteredAll.length === 1 ? '' : 's'} in ${STAGE_LABELS[stage]}${pipelineStateFilter !== 'all' ? ` · ${pipelineStateFilter} only` : ''}</p>
+        </div>
+        <div class="flex items-center gap-3">
+          ${renderPipelineSearch()}
+          ${renderPipelineStateToggle()}
+        </div>
+      </div>
+
+      ${pipelineSearch ? `<div class="text-xs text-haven-muted mb-3">${all.length} match${all.length === 1 ? '' : 'es'} for "${pipelineSearch}"</div>` : ''}
+
+      <div class="space-y-5">
+        ${buckets.map(b => {
+          const rows = byBucket[b.key] || [];
+          const badgeClass = `badge-${b.tone}`;
+          return `
+            <div class="card p-0 overflow-hidden">
+              <div class="px-4 py-3 border-b border-haven-border flex items-center justify-between bg-haven-bg">
+                <div class="flex items-center gap-3">
+                  <span class="badge ${badgeClass}">${b.label}</span>
+                  <span class="text-sm text-haven-muted">${rows.length} project${rows.length === 1 ? '' : 's'}</span>
+                </div>
+              </div>
+              ${rows.length === 0 ? `
+                <div class="px-4 py-6 text-center text-sm text-haven-muted italic">No projects in this sub-bucket</div>
+              ` : `
+                <table class="w-full text-sm">
+                  <thead class="border-b border-haven-border bg-haven-bg">
+                    <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
+                      <th class="px-4 py-2"></th>
+                      <th class="px-4 py-2">Project</th>
+                      <th class="px-4 py-2">Location</th>
+                      <th class="px-4 py-2">System</th>
+                      <th class="px-4 py-2">Coord</th>
+                      <th class="px-4 py-2">Days in stage</th>
+                      <th class="px-4 py-2">Next action</th>
+                      <th class="px-4 py-2">Waiting on</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${rows.sort((a, b) => b.risk - a.risk).map(p => {
+                      const coord = getCoord(p);
+                      const overdue = p.slaStatus === 'breached';
+                      const inst = getInstaller(p);
+                      return `
+                        <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
+                          <td class="px-4 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
+                          <td class="px-4 py-2.5">
+                            <div class="font-medium text-haven-forest">${p.name}</div>
+                            <div class="text-[11px] text-haven-muted">${p.projectNumber}</div>
+                          </td>
+                          <td class="px-4 py-2.5 text-haven-muted">${p.city}, ${p.state}</td>
+                          <td class="px-4 py-2.5 text-xs text-haven-muted">${p.solar} kW${p.battery ? ` + ${p.battery} kWh` : ''}</td>
+                          <td class="px-4 py-2.5">${avatar(coord, 18)} <span class="text-xs ml-1 align-middle">${coord.split(' ')[0]}</span></td>
+                          <td class="px-4 py-2.5 ${overdue ? 'text-haven-danger font-medium' : ''}">${p.daysInStage}d${overdue ? ` (${p.daysOverdue}d over)` : ''}</td>
+                          <td class="px-4 py-2.5 text-xs ${p.nextAction ? '' : 'italic text-haven-danger'}">${p.nextAction ? `<span class="truncate block max-w-[220px]" title="${p.nextAction}">${p.nextAction}</span>` : '— not set —'}</td>
+                          <td class="px-4 py-2.5"><span class="badge badge-neutral">${WAITING_ON_LABELS[p.waitingOn] || '—'}</span></td>
+                        </tr>`;
+                    }).join('')}
+                  </tbody>
+                </table>
+              `}
+            </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+  attachProjectHandlers();
+  attachPipelineSearchHandler();
 }
 
 window.setPipelineFilter = (f) => { pipelineFilter = f; render(); };
@@ -1333,6 +1483,138 @@ function pipelineCard(p) {
       ${reason ? `<div class="text-xs mt-2">${reason}</div>` : ''}
       ${p.nextAction && !ready ? `<div class="text-[11px] text-haven-muted mt-2 pt-2 border-t border-haven-border truncate">${p.nextAction}</div>` : ''}
     </div>`;
+}
+
+// ============================================================
+// SUB-BUCKETS for stage drilldown
+// ============================================================
+// Ordered list of sub-bucket keys per stage, with human labels.
+// Bucket inference is based on available project fields (waitingOn, submittals, installer data, etc.)
+const SUB_BUCKETS = {
+  site_survey: [
+    { key: 'ready_to_schedule', label: 'Ready to schedule', tone: 'warn' },
+    { key: 'scheduled', label: 'Scheduled', tone: 'info' },
+    { key: 'survey_complete', label: 'Survey complete (awaiting review)', tone: 'ok' },
+  ],
+  design: [
+    { key: 'ready_to_start', label: 'Ready to start', tone: 'warn' },
+    { key: 'in_progress', label: 'In progress', tone: 'info' },
+    { key: 'awaiting_customer', label: 'Awaiting customer approval', tone: 'warn' },
+    { key: 'revisions_requested', label: 'Revisions requested', tone: 'danger' },
+  ],
+  permitting: [
+    { key: 'ready_to_submit', label: 'Ready to submit', tone: 'warn' },
+    { key: 'submitted', label: 'Submitted', tone: 'info' },
+    { key: 'corrections_requested', label: 'Corrections requested', tone: 'danger' },
+    { key: 'approved', label: 'Approved', tone: 'ok' },
+  ],
+  scheduling: [
+    { key: 'ready_to_schedule', label: 'Ready to schedule', tone: 'warn' },
+    { key: 'date_proposed', label: 'Date proposed', tone: 'info' },
+    { key: 'date_confirmed', label: 'Date confirmed', tone: 'ok' },
+  ],
+  installation: [
+    { key: 'ready_to_install', label: 'Ready to install', tone: 'warn' },
+    { key: 'in_progress', label: 'Install in progress', tone: 'info' },
+    { key: 'complete_awaiting_inspection', label: 'Install complete (awaiting inspection)', tone: 'ok' },
+  ],
+  inspection: [
+    { key: 'scheduled', label: 'Inspection scheduled', tone: 'info' },
+    { key: 'rework_needed', label: 'Rework needed', tone: 'warn' },
+    { key: 'passed', label: 'Passed', tone: 'ok' },
+    { key: 'failed', label: 'Failed', tone: 'danger' },
+  ],
+  interconnection: [
+    { key: 'application_submitted', label: 'Application submitted', tone: 'info' },
+    { key: 'utility_clarification', label: 'Utility clarification needed', tone: 'warn' },
+    { key: 'pto_granted', label: 'PTO granted', tone: 'ok' },
+    { key: 'application_failed', label: 'Application failed', tone: 'danger' },
+  ],
+  rebate: [
+    { key: 'icf_pending', label: 'ICF pending (no PTO yet)', tone: 'warn' },
+    { key: 'ready_to_submit', label: 'PTO complete — ICF ready to submit', tone: 'info' },
+    { key: 'icf_submitted', label: 'ICF submitted', tone: 'info' },
+    { key: 'icf_complete', label: 'ICF complete', tone: 'ok' },
+  ],
+};
+
+function subBucketForProject(p) {
+  // Returns the sub-bucket key for p within its current stage.
+  const stage = p.stage;
+  const d = INSTALLER_PROJECT_DATA[p.id] || {};
+  const projSubs = SUBMITTALS.filter(s => s.projectId === p.id);
+
+  if (stage === 'site_survey') {
+    // Use waitingOn + days in stage as a rough signal
+    if (p.waitingOn === 'customer' && p.daysInStage < 3) return 'ready_to_schedule';
+    if (p.daysInStage < 5) return 'scheduled';
+    return 'survey_complete';
+  }
+  if (stage === 'design') {
+    if (p.waitingOn === 'customer') return 'awaiting_customer';
+    if (p.nextAction && /revis/i.test(p.nextAction)) return 'revisions_requested';
+    if (p.daysInStage <= 2) return 'ready_to_start';
+    return 'in_progress';
+  }
+  if (stage === 'permitting') {
+    // Use submittals log for clearer signal
+    const permit = projSubs.find(s => s.type === 'permit_app' || s.type === 'permit_resubmit');
+    if (!permit) return 'ready_to_submit';
+    if (p.nextAction && /resubmit|revis|correct|revised/i.test(p.nextAction)) return 'corrections_requested';
+    if (permit.status === 'responded') return 'approved';
+    return 'submitted';
+  }
+  if (stage === 'scheduling') {
+    if (d.installConfirmedDate) return 'date_confirmed';
+    if (p.nextAction && /lock|confirm|install date/i.test(p.nextAction)) return 'date_proposed';
+    return 'ready_to_schedule';
+  }
+  if (stage === 'installation') {
+    if (d.installCompletedAt) return 'complete_awaiting_inspection';
+    if (d.installConfirmedDate && p.daysInStage >= 1) return 'in_progress';
+    return 'ready_to_install';
+  }
+  if (stage === 'inspection') {
+    if (d.inspectionResult === 'passed') return 'passed';
+    if (d.inspectionResult === 'failed') return 'failed';
+    if (p.nextAction && /rework|fix|correct/i.test(p.nextAction)) return 'rework_needed';
+    return 'scheduled';
+  }
+  if (stage === 'interconnection') {
+    const ic = projSubs.find(s => s.type === 'interconnection_app');
+    if (p.nextAction && /clarif|clarification/i.test(p.nextAction)) return 'utility_clarification';
+    if (p.nextAction && /fail|reject/i.test(p.nextAction)) return 'application_failed';
+    if (ic && ic.status === 'responded') return 'pto_granted';
+    return 'application_submitted';
+  }
+  if (stage === 'rebate') {
+    // For rebate, sub-buckets mirror the ICF milestones.
+    const sgip = projSubs.find(s => s.type === 'sgip_rsse' || s.type === 'sgip_claim');
+    const ptoGranted = projSubs.some(s => s.type === 'interconnection_app' && s.status === 'responded');
+    if (!ptoGranted) return 'icf_pending';
+    if (!sgip) return 'ready_to_submit';
+    if (sgip.status === 'responded') return 'icf_complete';
+    return 'icf_submitted';
+  }
+  return null;
+}
+
+// Apply search, state filter, and the existing pipelineFilter
+function pipelineFilteredProjects() {
+  let list = visibleProjects().filter(p => p.stage !== 'completed');
+  if (pipelineStateFilter !== 'all') list = list.filter(p => p.state === pipelineStateFilter);
+  if (pipelineFilter === 'ready_to_advance') list = list.filter(p => isReadyToAdvance(p));
+  else if (pipelineFilter === 'at_risk') list = list.filter(p => p.riskLevel === 'high');
+  if (pipelineSearch.trim()) {
+    const q = pipelineSearch.trim().toLowerCase();
+    list = list.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.city.toLowerCase().includes(q) ||
+      p.projectNumber.toLowerCase().includes(q) ||
+      p.zip.includes(q)
+    );
+  }
+  return list;
 }
 
 // Drag state
@@ -3155,38 +3437,134 @@ function renderMetrics() {
       </div>
 
       <div class="card mb-6">
-        <h2 class="font-serif font-bold text-haven-forest mb-1">Where cycle time goes</h2>
-        <p class="text-xs text-haven-muted mb-4">Median time per stage across completed projects · handoff gaps shown separately</p>
-        <div class="space-y-2">
-          ${stageAvgs.map((s, i) => {
-            const pct = (s.avg / (totalCycle + handoffSum)) * 100;
-            const handoffPct = i < stageAvgs.length - 1 ? (COMPLETED_STAGE_DURATIONS.handoff_gaps[i] / (totalCycle + handoffSum)) * 100 : 0;
-            const overBy = s.variance;
-            const tone = overBy > 3 ? 'danger' : overBy > 0 ? 'warn' : '';
-            return `
-              <div>
-                <div class="flex items-center gap-3 mb-1">
-                  <div class="w-32 text-sm">${STAGE_LABELS[s.stage]}</div>
-                  <div class="flex-1 track-bar">
-                    <div class="track-bar-fill ${tone}" style="width: ${pct * 3}%"></div>
-                  </div>
-                  <div class="text-sm font-medium w-16 text-right">${s.avg}d</div>
-                  <div class="text-xs w-20 text-right ${overBy > 0 ? 'text-haven-danger' : 'text-haven-ok'}">${overBy > 0 ? '+' : ''}${overBy}d vs SLA</div>
-                </div>
-                ${handoffPct > 0 ? `<div class="flex items-center gap-3 mb-3 text-haven-muted">
-                  <div class="w-32 text-xs italic">&nbsp;↳ handoff</div>
-                  <div class="flex-1 track-bar"><div class="track-bar-fill" style="width: ${handoffPct * 3}%; background: #C5E84A;"></div></div>
-                  <div class="text-xs w-16 text-right">${COMPLETED_STAGE_DURATIONS.handoff_gaps[i]}d</div>
-                  <div class="w-20"></div>
-                </div>` : ''}
-              </div>`;
-          }).join('')}
-        </div>
-        <div class="mt-4 pt-4 border-t border-haven-border flex items-center justify-between">
-          <div class="text-sm"><span class="text-haven-muted">Total stage time:</span> <span class="font-medium">${totalCycle}d</span> · <span class="text-haven-muted">Handoff time:</span> <span class="font-medium text-haven-warn">${handoffSum}d (${Math.round(handoffSum/(totalCycle+handoffSum)*100)}%)</span></div>
-          <div class="text-xs text-haven-muted">Opportunity: reducing handoff gaps saves ~${handoffSum}d per project</div>
-        </div>
+        <h2 class="font-serif font-bold text-haven-forest mb-1">Cycle time anatomy</h2>
+        <p class="text-xs text-haven-muted mb-5">A typical project from site survey to rebate, based on completed work. Each segment is a stage; thin dark slivers between them are handoff gaps.</p>
+
+        ${(() => {
+          const totalAll = totalCycle + handoffSum;
+          const STAGE_COLORS = {
+            site_survey: '#7A9A7A',
+            design: '#4A6A8A',
+            permitting: '#C44545',
+            scheduling: '#8E4A9C',
+            installation: '#2F7A3E',
+            inspection: '#C5843A',
+            interconnection: '#3A6EA8',
+            rebate: '#1F7A8C',
+          };
+
+          // Build the stacked strip
+          const segments = [];
+          stageAvgs.forEach((s, i) => {
+            segments.push({ type: 'stage', stage: s.stage, days: s.avg, label: STAGE_LABELS[s.stage], color: STAGE_COLORS[s.stage], variance: s.variance });
+            if (i < stageAvgs.length - 1) {
+              const gap = COMPLETED_STAGE_DURATIONS.handoff_gaps[i];
+              if (gap > 0) segments.push({ type: 'handoff', days: gap, color: '#1A1F1A' });
+            }
+          });
+
+          return `
+            <div class="mb-4">
+              <div class="flex w-full rounded-md overflow-hidden" style="height: 48px; border: 1px solid #E4E6E0;">
+                ${segments.map(seg => {
+                  const pct = (seg.days / totalAll) * 100;
+                  if (seg.type === 'handoff') {
+                    return `<div style="width:${pct}%; background:${seg.color}; min-width:3px;" title="Handoff gap · ${seg.days}d"></div>`;
+                  }
+                  const narrow = pct < 6;
+                  return `<div class="flex items-center justify-center text-white font-medium text-xs" style="width:${pct}%; background:${seg.color};" title="${seg.label} · ${seg.days}d">${narrow ? seg.days : `${seg.days}d`}</div>`;
+                }).join('')}
+              </div>
+              <div class="flex w-full mt-1.5" style="font-size:10px;">
+                ${segments.map(seg => {
+                  const pct = (seg.days / totalAll) * 100;
+                  if (seg.type === 'handoff') return `<div style="width:${pct}%;"></div>`;
+                  return `<div class="text-center text-haven-muted uppercase tracking-wide truncate" style="width:${pct}%; padding:0 2px;">${seg.label}</div>`;
+                }).join('')}
+              </div>
+            </div>
+
+            <div class="flex items-baseline justify-between pt-3 border-t border-haven-border">
+              <div class="flex items-center gap-6 text-sm">
+                <div><span class="text-haven-muted">Stage work</span> <span class="font-semibold ml-1">${totalCycle}d</span> <span class="text-haven-muted text-xs">(${Math.round(totalCycle/totalAll*100)}%)</span></div>
+                <div><span class="text-haven-muted">Handoff gaps</span> <span class="font-semibold ml-1" style="color:#1A1F1A">${handoffSum}d</span> <span class="text-haven-muted text-xs">(${Math.round(handoffSum/totalAll*100)}%)</span></div>
+              </div>
+              <div class="text-sm"><span class="text-haven-muted">Total cycle</span> <span class="font-serif font-bold text-lg text-haven-forest ml-1">${totalAll}d</span></div>
+            </div>
+          `;
+        })()}
       </div>
+
+      ${(() => {
+        // Biggest leaks: rank by variance (days over target), filter to positive variance
+        const leaks = stageAvgs
+          .map(s => ({ ...s, label: STAGE_LABELS[s.stage] }))
+          .filter(s => s.variance > 0)
+          .sort((a, b) => b.variance - a.variance);
+
+        if (leaks.length === 0) return `
+          <div class="card mb-6">
+            <h2 class="font-serif font-bold text-haven-forest mb-1">Biggest leaks</h2>
+            <p class="text-sm text-haven-ok mt-2">No stages are running over target. Nice.</p>
+          </div>
+        `;
+
+        const maxVariance = Math.max(...leaks.map(s => s.variance));
+        return `
+          <div class="card mb-6">
+            <h2 class="font-serif font-bold text-haven-forest mb-1">Biggest leaks</h2>
+            <p class="text-xs text-haven-muted mb-4">Stages running over target, ranked by days over. Fixing the top one has the biggest cycle-time impact.</p>
+            <div class="space-y-3">
+              ${leaks.map((s, idx) => {
+                const barPct = (s.variance / maxVariance) * 100;
+                const overPct = Math.round((s.variance / s.target) * 100);
+                const tone = s.variance >= maxVariance * 0.7 ? 'danger' : s.variance >= maxVariance * 0.4 ? 'warn' : 'neutral';
+                const toneColor = tone === 'danger' ? '#C44545' : tone === 'warn' ? '#E0A83A' : '#6B7568';
+                return `
+                  <div>
+                    <div class="flex items-baseline justify-between mb-1.5">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs text-haven-muted tabular-nums w-4">#${idx + 1}</span>
+                        <span class="font-medium">${s.label}</span>
+                      </div>
+                      <div class="text-sm tabular-nums">
+                        <span class="font-semibold" style="color:${toneColor}">+${s.variance}d over</span>
+                        <span class="text-haven-muted ml-3">${s.avg}d actual vs ${s.target}d target</span>
+                      </div>
+                    </div>
+                    <div class="relative h-2 rounded-full" style="background:#E4E6E0;">
+                      <div class="absolute left-0 top-0 h-full rounded-full" style="width:${barPct}%; background:${toneColor};"></div>
+                    </div>
+                    <div class="text-xs text-haven-muted mt-1">
+                      ${overPct}% over target ·
+                      ${idx === 0 ? `Top priority — reducing this stage by half cuts ${Math.ceil(s.variance / 2)}d from every project` : `Fixing this saves ${s.variance}d per project`}
+                    </div>
+                  </div>`;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      })()}
+
+      ${handoffSum >= 7 ? `
+        <div class="card mb-6" style="background: #FAFAF7; border-left: 4px solid #1A1F1A;">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <h2 class="font-serif font-bold text-haven-forest">${handoffSum} days per project lost to handoffs</h2>
+              </div>
+              <p class="text-sm text-haven-muted mb-2">Time between when one stage finishes and the next one actually starts. Pure coordination waste — no process improvement needed, just tighter handoffs.</p>
+              <div class="text-sm text-haven-ink">
+                At <span class="font-semibold">${completed.length || 30}+</span> projects per year, that's roughly <span class="font-semibold text-haven-forest">${Math.round((handoffSum * (completed.length || 30)) / 30)} installer-days</span> of project time reclaimed if handoffs drop to zero.
+              </div>
+            </div>
+            <div class="text-right shrink-0">
+              <div class="font-serif font-bold text-4xl text-haven-forest">${handoffSum}d</div>
+              <div class="text-xs text-haven-muted uppercase tracking-wider">per project</div>
+            </div>
+          </div>
+        </div>
+      ` : ''}
 
       ${renderBallInCourt()}
 
