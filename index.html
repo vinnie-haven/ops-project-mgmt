@@ -1655,6 +1655,7 @@ function renderNav() {
       runbookProjectId = null;
       jobsSearch = '';
       selectedTasks.clear();
+      stuckDrilldownStatus = null;
       renderNav();
       render();
     });
@@ -6126,6 +6127,8 @@ function renderMetrics() {
 // ============================================================
 let stuckSort = { col: 'deals_stuck', dir: 'desc' };
 let stuckPhaseFilter = null;
+let stuckDrilldownStatus = null; // when set, show project list for this status instead of the aggregate table
+let stuckDrilldownSort = { col: 'days_stuck', dir: 'desc' };
 
 function computeStuckAggregates() {
   // Only active projects. Stage scope is intentionally NOT applied — this report is
@@ -6159,6 +6162,8 @@ function computeStuckAggregates() {
 }
 
 function renderStuck() {
+  if (stuckDrilldownStatus) return renderStuckDrilldown();
+
   const rows = computeStuckAggregates();
 
   // Phase-level totals for the summary strip
@@ -6275,13 +6280,126 @@ window.setStuckPhaseFilter = (phase) => {
   render();
 };
 window.openStuckDrilldown = (status) => {
-  // Build a quick list of underlying projects. For the demo we surface them in an alert-style
-  // lightweight listing; could be upgraded to a drilldown page.
-  const projects = PROJECTS.filter(p => stuckStatusForProject(p) === status);
-  if (projects.length === 0) return;
-  // Open the first project's modal as a drilldown example
-  openProjectModal(projects.sort((a, b) => (b.daysInStage || 0) - (a.daysInStage || 0))[0].id);
+  stuckDrilldownStatus = status;
+  stuckDrilldownSort = { col: 'days_stuck', dir: 'desc' };
+  render();
 };
+window.closeStuckDrilldown = () => {
+  stuckDrilldownStatus = null;
+  render();
+};
+window.toggleStuckDrilldownSort = (col) => {
+  if (stuckDrilldownSort.col === col) stuckDrilldownSort.dir = stuckDrilldownSort.dir === 'asc' ? 'desc' : 'asc';
+  else stuckDrilldownSort = { col, dir: col === 'customer' || col === 'coord' || col === 'installer' ? 'asc' : 'desc' };
+  render();
+};
+
+function renderStuckDrilldown() {
+  const status = stuckDrilldownStatus;
+  const phase = STUCK_STATUS_CATALOG[status]?.phase || 'Other';
+  let projects = PROJECTS.filter(p => stuckStatusForProject(p) === status);
+
+  const acc = {
+    customer: p => p.name.toLowerCase(),
+    days_stuck: p => daysStuckForProject(p),
+    coord: p => (p.coord || '').toLowerCase(),
+    installer: p => (p.installer || 'zzz').toLowerCase(),
+    last_touched: p => p.lastTouchedDaysAgo || 0,
+    waiting_on: p => p.waitingOn || 'zzz',
+    utility: p => p.utility || '',
+  };
+  const accFn = acc[stuckDrilldownSort.col] || acc.days_stuck;
+  const dir = stuckDrilldownSort.dir === 'asc' ? 1 : -1;
+  projects.sort((a, b) => {
+    const av = accFn(a), bv = accFn(b);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+
+  const total = projects.length;
+  const days = projects.map(daysStuckForProject);
+  const sortedDays = days.slice().sort((a, b) => a - b);
+  const median = sortedDays.length > 0 ? sortedDays[Math.floor(sortedDays.length / 2)] : 0;
+  const max = sortedDays.length > 0 ? sortedDays[sortedDays.length - 1] : 0;
+  const over90 = days.filter(d => d > 90).length;
+
+  const th = (key, label, align = 'left') => {
+    const isSorted = stuckDrilldownSort.col === key;
+    const icon = isSorted ? (stuckDrilldownSort.dir === 'asc' ? '↑' : '↓') : '<span style="color:#C4C4C0">↕</span>';
+    return `<th class="px-3 py-2.5 text-${align}"><button class="uppercase tracking-wide text-xs text-haven-muted hover:text-haven-forest flex items-center gap-1 ${align === 'right' ? 'ml-auto' : ''}" onclick="toggleStuckDrilldownSort('${key}')">${label} ${icon}</button></th>`;
+  };
+
+  const waitingLabel = {
+    customer: 'Customer', utility: 'Utility', ahj: 'AHJ', installer: 'Installer', internal: 'Internal', nothing: '—',
+  };
+  const waitingColor = {
+    customer: '#8E4A9C', utility: '#3A6EA8', ahj: '#C44545', installer: '#C5843A', internal: '#6B7568',
+  };
+
+  const daysColor = (d) => {
+    if (d > 90) return '#C44545';
+    if (d > 60) return '#D8691C';
+    if (d > 30) return '#E0A83A';
+    return '#6B7568';
+  };
+
+  main.innerHTML = `
+    <div class="p-6 max-w-6xl">
+      <button class="text-sm text-haven-muted hover:text-haven-forest mb-3 flex items-center gap-1" onclick="closeStuckDrilldown()">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+        Back to Stuck Deals
+      </button>
+      <div class="mb-5">
+        <div class="text-xs uppercase tracking-wider text-haven-muted">${phase}</div>
+        <h1 class="font-serif text-2xl font-bold text-haven-forest mt-1">${status}</h1>
+        <p class="text-sm text-haven-muted mt-1">${total} project${total === 1 ? '' : 's'} stuck · median ${median}d · max ${max}d${over90 > 0 ? ` · <span class="text-haven-danger font-medium">${over90} over 90 days</span>` : ''}</p>
+      </div>
+
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-haven-bg border-b border-haven-border">
+            <tr>
+              ${th('customer', 'Customer')}
+              ${th('utility', 'Utility')}
+              ${th('days_stuck', 'Days stuck', 'right')}
+              ${th('waiting_on', 'Waiting on')}
+              ${th('coord', 'Coord')}
+              ${th('installer', 'Installer')}
+              ${th('last_touched', 'Last touched', 'right')}
+              <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">Next action</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${projects.length === 0 ? `<tr><td colspan="8" class="px-4 py-8 text-center text-haven-muted">No projects in this bucket</td></tr>` : projects.map(p => {
+              const d = daysStuckForProject(p);
+              const wo = p.waitingOn || 'nothing';
+              const wColor = waitingColor[wo] || '#6B7568';
+              const wLabel = waitingLabel[wo] || wo;
+              return `
+                <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
+                  <td class="px-3 py-2.5">
+                    <div class="font-medium text-haven-forest">${p.name}</div>
+                    <div class="text-[11px] text-haven-muted">${p.projectNumber} · ${p.city}, ${p.state}</div>
+                  </td>
+                  <td class="px-3 py-2.5"><span class="badge badge-info">${p.utility}</span></td>
+                  <td class="px-3 py-2.5 text-right tabular-nums font-semibold" style="color:${daysColor(d)}">${d}d</td>
+                  <td class="px-3 py-2.5">${wo === 'nothing' ? '<span class="text-xs text-haven-muted">—</span>' : `<div class="flex items-center gap-1.5"><div class="w-2 h-2 rounded-full shrink-0" style="background:${wColor}"></div><span class="text-xs">${wLabel}</span></div>`}</td>
+                  <td class="px-3 py-2.5">${avatar(p.coord, 18)} <span class="text-xs ml-1 align-middle">${p.coord.split(' ')[0]}</span></td>
+                  <td class="px-3 py-2.5 text-xs ${p.installer ? '' : 'italic text-haven-muted'}">${p.installer ? p.installer.split(' ')[0] : '—'}</td>
+                  <td class="px-3 py-2.5 text-right text-xs text-haven-muted tabular-nums">${p.lastTouchedDaysAgo}d ago</td>
+                  <td class="px-3 py-2.5 text-xs ${p.nextAction ? '' : 'italic text-haven-danger'}">${p.nextAction ? `<span class="truncate block max-w-[220px]" title="${p.nextAction}">${p.nextAction}</span>` : '— not set —'}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-xs text-haven-muted mt-3 italic">Click any project to open the full detail view.</div>
+    </div>
+  `;
+  attachProjectHandlers();
+}
 
 
 // ============================================================
