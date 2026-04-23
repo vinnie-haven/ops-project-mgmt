@@ -2377,14 +2377,34 @@ function renderPipelineDrilldown() {
         </div>
       </div>
 
-      <!-- Sub-bucket chip row for quick jumping -->
-      <div class="flex items-center gap-2 mb-4 flex-wrap">
-        <button class="filter-chip ${!f.sub_bucket ? 'active' : ''}" onclick="setPDFilter('sub_bucket', null)">All <span class="opacity-70 ml-1">${pipelineFilteredProjects().filter(p => p.stage === stage).length}</span></button>
+      <!-- Sub-bucket tiles for quick jumping -->
+      <div class="grid gap-3 mb-5" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+        ${(() => {
+          const allCount = pipelineFilteredProjects().filter(p => p.stage === stage).length;
+          const allActive = !f.sub_bucket;
+          const allStyle = allActive
+            ? 'background:#013300; color:white; border-color:#013300;'
+            : 'background:white; color:#013300; border-color:#E4E6E0;';
+          return `
+            <button onclick="setPDFilter('sub_bucket', null)" class="text-left px-4 py-3 rounded-lg border transition-all hover:shadow-sm" style="${allStyle}">
+              <div class="text-[10px] uppercase tracking-wider font-medium ${allActive ? 'opacity-80' : 'text-haven-muted'}">All</div>
+              <div class="font-serif font-bold text-2xl mt-1 tabular-nums">${allCount}</div>
+            </button>
+          `;
+        })()}
         ${buckets.map(b => {
           const bucketCount = pipelineFilteredProjects().filter(p => p.stage === stage && subBucketForProject(p) === b.key).length;
           const isActive = f.sub_bucket === b.key;
           const toneColor = { ok: '#2F7A3E', warn: '#E0A83A', danger: '#C44545', info: '#3A6EA8', neutral: '#6B7568' }[b.tone] || '#6B7568';
-          return `<button class="filter-chip ${isActive ? 'active' : ''}" onclick="setPDFilter('sub_bucket', '${b.key}')" style="${!isActive ? `border-color:${toneColor};color:${toneColor};` : ''}">${b.label} <span class="opacity-70 ml-1">${bucketCount}</span></button>`;
+          const style = isActive
+            ? `background:${toneColor}; color:white; border-color:${toneColor};`
+            : `background:white; color:#1A1F1A; border-color:${toneColor}40;`;
+          const numColor = isActive ? 'color:white' : `color:${toneColor}`;
+          return `
+            <button onclick="setPDFilter('sub_bucket', '${b.key}')" class="text-left px-4 py-3 rounded-lg border transition-all hover:shadow-sm" style="${style}">
+              <div class="text-[10px] uppercase tracking-wider font-medium ${isActive ? 'opacity-80' : 'text-haven-muted'}">${b.label}</div>
+              <div class="font-serif font-bold text-2xl mt-1 tabular-nums" style="${numColor}">${bucketCount}</div>
+            </button>`;
         }).join('')}
       </div>
 
