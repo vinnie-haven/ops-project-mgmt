@@ -1187,6 +1187,78 @@ function workOrderDaysLeft(wo) {
 
 
 // ============================================================
+// REWORK SEED — projects that were sent back to a prior stage
+// ============================================================
+// Seed ~7% of active projects as rework, biased toward stages with common regression patterns:
+// permitting (AHJ plan corrections), interconnection (utility requests revisions),
+// installation (failed inspection triggers re-do), inspection (correction punch-list).
+const REWORK_REASON_BY_STAGE = {
+  permitting: [
+    'AHJ requested revised structural calcs',
+    'Plan reviewer flagged missing conduit sizing',
+    'Correction notice: relabel MSP load calc',
+    'Setback callout not on cover sheet',
+  ],
+  design: [
+    'Customer requested panel layout change',
+    'Revised post-install production estimate under target',
+  ],
+  installation: [
+    'Install photos missing — crew recalled to site',
+    'Wrong inverter serial logged, re-commission required',
+    'Battery bracket installed per old spec, needs rework',
+  ],
+  inspection: [
+    'Failed inspection: missing conduit strap',
+    'Failed inspection: incorrect MSP labeling',
+    'Inspector punch list: grounding correction',
+  ],
+  interconnection: [
+    'Utility rejected PTO app — SLD revision required',
+    'Net meter program form resubmission required',
+  ],
+  scheduling: [
+    'Customer reschedule — re-coordinate installer crew',
+  ],
+  rebate: [
+    'SGIP rejected: missing spec sheet attachment',
+  ],
+};
+(function seedRework() {
+  const eligibleStages = ['permitting', 'design', 'installation', 'inspection', 'interconnection', 'scheduling', 'rebate'];
+  // Use a small deterministic picker from the project id hash so seeds are stable across reloads
+  const hash = (s) => { let h = 0; for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0; return Math.abs(h); };
+  PROJECTS.forEach(p => {
+    if (p.stage === 'completed') return;
+    if (!eligibleStages.includes(p.stage)) return;
+    // ~7% overall, weighted higher for stages prone to regression
+    const stageWeight = { permitting: 0.13, interconnection: 0.10, inspection: 0.10, installation: 0.06, design: 0.05, scheduling: 0.04, rebate: 0.09 };
+    const prob = stageWeight[p.stage] || 0.05;
+    const h = hash(p.id);
+    if ((h % 1000) / 1000 >= prob) return;
+
+    const pool = REWORK_REASON_BY_STAGE[p.stage] || [];
+    if (pool.length === 0) return;
+
+    const reasonIdx = h % pool.length;
+    const reason = pool[reasonIdx];
+
+    // Rework age: 1 to daysInStage, but capped so it feels realistic
+    const reworkedDaysAgo = Math.max(1, Math.min(p.daysInStage || 3, 1 + (h % 21)));
+
+    // Figure out "returned from" stage — typically the next stage, or later
+    const stageIdx = STAGE_ORDER.indexOf(p.stage);
+    const returnedFrom = STAGE_ORDER[Math.min(STAGE_ORDER.length - 1, stageIdx + 1 + (h % 2))] || STAGE_ORDER[stageIdx + 1] || p.stage;
+
+    p.reworkCount = 1 + (h % 100 < 12 ? 1 : 0); // ~12% have been reworked twice
+    p.reworkReason = reason;
+    p.reworkFromStage = returnedFrom;
+    p.reworkedDaysAgo = reworkedDaysAgo;
+  });
+})();
+
+
+// ============================================================
 // RUNBOOK SEED — runs AFTER INSTALLER_PROJECT_DATA is populated
 // ============================================================
 PROJECTS.forEach(p => {
@@ -1389,6 +1461,8 @@ let pipelineDrilldownOpenFilter = null; // which column filter dropdown is open
 let pipelineDrilldownSort = { col: 'risk', dir: 'desc' };
 let taskBatchMode = false;
 let taskStatusFilter = 'open'; // open | completed | all
+let selectedTasks = new Set(); // task IDs selected via checkbox
+const taskAssignees = {}; // taskId -> coord name override (defaults to project's coord)
 let assignedInstallers = {};
 let assignedCoords = {};
 let completedTasks = new Set();
@@ -1511,6 +1585,7 @@ const NAV_INTERNAL = [
   { view: 'tasks', label: 'Tasks', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>' },
   { group: 'Tracking' },
   { view: 'blockers', label: 'Blockers', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>' },
+  { view: 'rework', label: 'Rework', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>' },
   { view: 'post_install', label: 'Post-Install', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>' },
   { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
   { group: 'Reporting' },
@@ -1562,6 +1637,7 @@ function renderNav() {
       pipelineExpandedStages = new Set();
       runbookProjectId = null;
       jobsSearch = '';
+      selectedTasks.clear();
       renderNav();
       render();
     });
@@ -1610,6 +1686,7 @@ function render() {
     else if (currentView === 'projects') renderProjects();
     else if (currentView === 'tasks') renderTasks(false);
     else if (currentView === 'blockers') renderBlockers();
+    else if (currentView === 'rework') renderRework();
     else if (currentView === 'post_install') renderPostInstall();
     else if (currentView === 'schedule') renderSchedule();
     else if (currentView === 'metrics') renderMetrics();
@@ -1909,10 +1986,14 @@ function renderPipeline() {
 
     // Bucketize
     const byBucket = {};
-    buckets.forEach(b => byBucket[b.key] = 0);
+    const byBucketProjects = {};
+    buckets.forEach(b => { byBucket[b.key] = 0; byBucketProjects[b.key] = []; });
     projects.forEach(p => {
       const k = subBucketForProject(p);
-      if (k && byBucket[k] !== undefined) byBucket[k]++;
+      if (k && byBucket[k] !== undefined) {
+        byBucket[k]++;
+        byBucketProjects[k].push(p);
+      }
     });
 
     const atRiskInStage = projects.filter(p => p.riskLevel === 'high').length;
@@ -1925,6 +2006,37 @@ function renderPipeline() {
     };
 
     const isExpanded = pipelineExpandedStages.has(stage) || !!pipelineSearch.trim();
+
+    // Age-bucket projects within a sub-bucket.
+    // Age = the longer of daysInStage and oldest-open-blocker-age so "blocked-for-30d" lights up red even if stage is fresh.
+    const bucketAgeCounts = (projectsInBucket) => {
+      const counts = { green: 0, yellow: 0, orange: 0, red: 0 };
+      projectsInBucket.forEach(p => {
+        const blockers = getProjectBlockers(p.id);
+        const oldestBlocker = blockers.reduce((m, b) => Math.max(m, b.openedDaysAgo), 0);
+        const age = Math.max(p.daysInStage || 0, oldestBlocker);
+        if (age <= 5) counts.green++;
+        else if (age <= 14) counts.yellow++;
+        else if (age <= 29) counts.orange++;
+        else counts.red++;
+      });
+      return counts;
+    };
+
+    // Totals across stage for the header mini-legend
+    const stageAgeTotals = bucketAgeCounts(projects);
+
+    const renderAgeBar = (counts, total) => {
+      if (total === 0) return `<div class="h-1.5 rounded-full" style="background:#E4E6E0;"></div>`;
+      const pct = (n) => (n / total) * 100;
+      return `
+        <div class="h-1.5 rounded-full overflow-hidden flex" style="background:#E4E6E0;">
+          ${counts.green > 0 ? `<div style="width:${pct(counts.green)}%; background:#2F7A3E;" title="${counts.green} fresh (0-5d)"></div>` : ''}
+          ${counts.yellow > 0 ? `<div style="width:${pct(counts.yellow)}%; background:#E0A83A;" title="${counts.yellow} watching (6-14d)"></div>` : ''}
+          ${counts.orange > 0 ? `<div style="width:${pct(counts.orange)}%; background:#D8691C;" title="${counts.orange} stale (15-29d)"></div>` : ''}
+          ${counts.red > 0 ? `<div style="width:${pct(counts.red)}%; background:#C44545;" title="${counts.red} ancient (30+d)"></div>` : ''}
+        </div>`;
+    };
 
     return `
       <div class="card p-0 overflow-hidden">
@@ -1947,6 +2059,20 @@ function renderPipeline() {
           </div>
         </div>
 
+        ${count > 0 ? `
+          <div class="px-4 py-2 border-b border-haven-border" style="background:#FAFAF7;">
+            <div class="flex items-center gap-2">
+              ${renderAgeBar(stageAgeTotals, count)}
+            </div>
+            <div class="flex items-center gap-3 mt-1.5 text-[10px] text-haven-muted">
+              ${stageAgeTotals.green > 0 ? `<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#2F7A3E"></span>${stageAgeTotals.green} fresh</span>` : ''}
+              ${stageAgeTotals.yellow > 0 ? `<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#E0A83A"></span>${stageAgeTotals.yellow} watching</span>` : ''}
+              ${stageAgeTotals.orange > 0 ? `<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#D8691C"></span>${stageAgeTotals.orange} stale</span>` : ''}
+              ${stageAgeTotals.red > 0 ? `<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full" style="background:#C44545"></span>${stageAgeTotals.red} ancient</span>` : ''}
+            </div>
+          </div>
+        ` : ''}
+
         ${isExpanded ? (count === 0 ? `
           <div class="px-4 py-5 text-center text-xs text-haven-muted italic">No projects in this stage</div>
         ` : `
@@ -1957,15 +2083,14 @@ function renderPipeline() {
                 const pct = count ? Math.round((n / count) * 100) : 0;
                 const color = toneColor[b.tone] || '#6B7568';
                 const dim = n === 0;
+                const subAgeCounts = bucketAgeCounts(byBucketProjects[b.key] || []);
                 return `
                   <tr class="border-b border-haven-border last:border-b-0 ${dim ? 'opacity-50' : 'cursor-pointer hover:bg-haven-bg'}" ${dim ? '' : `onclick="drilldownSubBucket('${stage}', '${b.key}')"`}>
                     <td class="px-4 py-2 w-1"><div class="w-2 h-2 rounded-full" style="background:${color}"></div></td>
                     <td class="px-2 py-2 text-haven-ink">${b.label}</td>
                     <td class="px-2 py-2 text-right font-semibold tabular-nums" style="color:${dim ? '#C4C4C0' : color}">${n}</td>
-                    <td class="px-2 py-2 w-24">
-                      <div class="h-1.5 rounded-full" style="background:#E4E6E0;">
-                        <div class="h-full rounded-full" style="width:${pct}%; background:${color};"></div>
-                      </div>
+                    <td class="px-2 py-2 w-32">
+                      ${renderAgeBar(subAgeCounts, n)}
                     </td>
                     <td class="px-4 py-2 text-right text-xs text-haven-muted tabular-nums w-12">${pct}%</td>
                   </tr>`;
@@ -2237,6 +2362,7 @@ function renderPipelineDrilldown() {
               ${th('customer', 'Customer')}
               ${th('utility', 'Utility', { filterCol: 'utility', filterOptions: utilities.map(u => ({ label: u, value: u })) })}
               ${th('sub_bucket', 'Status', { filterCol: 'sub_bucket', filterOptions: subBucketOptions })}
+              <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">Blocker</span></th>
               ${th('install_date', 'Install Date')}
               ${th('days_in_stage', 'Days in Stage')}
               ${th('installer', 'Installer', { filterCol: 'installer', filterOptions: installers.map(i => ({ label: i === '—' ? 'Not assigned' : i, value: i })) })}
@@ -2252,7 +2378,7 @@ function renderPipelineDrilldown() {
             </tr>
           </thead>
           <tbody>
-            ${sorted.length === 0 ? `<tr><td colspan="9" class="px-4 py-8 text-center text-haven-muted">No projects match</td></tr>` : shown.map(p => {
+            ${sorted.length === 0 ? `<tr><td colspan="10" class="px-4 py-8 text-center text-haven-muted">No projects match</td></tr>` : shown.map(p => {
               const coord = getCoord(p);
               const overdue = p.slaStatus === 'breached';
               const inst = getInstaller(p);
@@ -2263,14 +2389,36 @@ function renderPipelineDrilldown() {
               const installDate = INSTALLER_PROJECT_DATA[p.id]?.installConfirmedDate || '—';
               const projBlockers = getProjectBlockers(p.id);
               const hasBlocker = projBlockers.length > 0;
-              const blockerTooltip = hasBlocker ? projBlockers.map(b => `${b.label} (${b.openedDaysAgo}d)`).join(' · ') : '';
+              // Show the oldest open blocker as primary, with +N indicator if more
+              const primaryBlocker = hasBlocker ? projBlockers.slice().sort((a, b) => b.openedDaysAgo - a.openedDaysAgo)[0] : null;
+              const extraBlockers = hasBlocker ? projBlockers.length - 1 : 0;
+              const pbCat = primaryBlocker ? primaryBlocker.category : null;
+              const pbColor = pbCat ? BLOCKER_CATEGORY_COLORS[pbCat] : null;
+              const pbAgeTone = primaryBlocker ? blockerAgeTone(primaryBlocker.openedDaysAgo) : 'neutral';
+              const pbAgeToneColor = { ok: '#2F7A3E', warn: '#E0A83A', danger: '#C44545', neutral: '#6B7568' }[pbAgeTone];
+
+              // Permitting/IX follow-up indicator: surface submittal aging inline
+              let followUpHtml = '';
+              if (p.stage === 'permitting' || p.stage === 'interconnection') {
+                const subs = SUBMITTALS_BY_PROJECT[p.id] || [];
+                const wantType = p.stage === 'permitting' ? 'permit_app' : 'interconnection_app';
+                const sub = subs.find(s => s.type === wantType && s.status !== 'responded')
+                          || subs.find(s => s.type === wantType);
+                if (sub) {
+                  if (sub.status === 'overdue') {
+                    const overdueDays = sub.sentDaysAgo - sub.expectedResponseInDays;
+                    followUpHtml = `<div class="text-[10px] text-haven-danger font-medium mt-0.5">+${overdueDays}d overdue</div>`;
+                  } else if (sub.status === 'pending') {
+                    const ratio = sub.sentDaysAgo / sub.expectedResponseInDays;
+                    if (ratio >= 0.8) followUpHtml = `<div class="text-[10px] text-haven-warn mt-0.5">follow-up due soon (${sub.expectedResponseInDays - sub.sentDaysAgo}d)</div>`;
+                    else followUpHtml = `<div class="text-[10px] text-haven-muted mt-0.5">sent ${sub.sentDaysAgo}d ago</div>`;
+                  }
+                }
+              }
               return `
                 <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
                   <td class="px-3 py-2.5">
-                    <div class="flex items-center gap-1">
-                      <span class="risk-dot ${p.riskLevel || 'low'}"></span>
-                      ${hasBlocker ? `<span class="inline-flex items-center justify-center w-4 h-4 rounded-full" style="background:#C5843A;color:white;font-size:10px;font-weight:bold;" title="${blockerTooltip}">⚠</span>` : ''}
-                    </div>
+                    <span class="risk-dot ${p.riskLevel || 'low'}"></span>
                   </td>
                   <td class="px-3 py-2.5">
                     <div class="font-medium text-haven-forest">${p.name}</div>
@@ -2278,8 +2426,18 @@ function renderPipelineDrilldown() {
                   </td>
                   <td class="px-3 py-2.5"><span class="badge badge-info">${p.utility}</span></td>
                   <td class="px-3 py-2.5"><div class="flex items-center gap-1.5"><div class="w-2 h-2 rounded-full" style="background:${subToneColor}"></div><span class="text-xs">${subLabel}</span></div></td>
+                  <td class="px-3 py-2.5">${hasBlocker ? `
+                    <div class="flex items-center gap-2">
+                      <div class="w-2 h-2 rounded-full shrink-0" style="background:${pbColor};" title="${BLOCKER_CATEGORY_LABELS[pbCat]}"></div>
+                      <div class="min-w-0">
+                        <div class="text-xs font-medium truncate" style="max-width:180px;" title="${primaryBlocker.label}${extraBlockers > 0 ? ` (+${extraBlockers} more)` : ''}">${primaryBlocker.label}${extraBlockers > 0 ? ` <span class="text-haven-muted font-normal">+${extraBlockers}</span>` : ''}</div>
+                        <div class="text-[10px]" style="color:${pbAgeToneColor};">${primaryBlocker.openedDaysAgo}d open</div>
+                      </div>
+                      <button class="text-[10px] text-haven-forest hover:underline font-medium shrink-0" onclick="event.stopPropagation(); resolveBlocker('${primaryBlocker.id}')">Resolve</button>
+                    </div>
+                  ` : '<span class="text-xs text-haven-muted">—</span>'}</td>
                   <td class="px-3 py-2.5 text-xs text-haven-muted tabular-nums">${installDate}</td>
-                  <td class="px-3 py-2.5 ${overdue ? 'text-haven-danger font-medium' : ''} tabular-nums">${p.daysInStage}d${overdue ? ` (${p.daysOverdue}d over)` : ''}</td>
+                  <td class="px-3 py-2.5 ${overdue ? 'text-haven-danger font-medium' : ''} tabular-nums">${p.daysInStage}d${overdue ? ` (${p.daysOverdue}d over)` : ''}${followUpHtml}</td>
                   <td class="px-3 py-2.5 text-xs ${inst ? '' : 'italic text-haven-muted'}">${inst ? inst.split(' ')[0] : '—'}</td>
                   <td class="px-3 py-2.5">${avatar(coord, 18)} <span class="text-xs ml-1 align-middle">${coord.split(' ')[0]}</span></td>
                   <td class="px-3 py-2.5 text-xs ${p.nextAction ? '' : 'italic text-haven-danger'}">${p.nextAction ? `<span class="truncate block max-w-[220px]" title="${p.nextAction}">${p.nextAction}</span>` : '— not set —'}</td>
@@ -2640,8 +2798,9 @@ function handleStageMove(p, newStage) {
 // PROJECTS LIST
 // ============================================================
 let projectsSearch = '';
-let projectsSort = { col: 'active_then_risk', dir: 'desc' };
+let projectsSort = { col: 'last_touched', dir: 'asc' };
 let projectsFilters = { stage: null, coord: null, installer: null, utility: null, status: null };
+let projectsDependentOnMe = false;
 let projectsOpenFilter = null;
 
 function renderProjects() {
@@ -2661,6 +2820,17 @@ function renderProjects() {
       if (projectsFilters.status === 'approaching') return p.stage !== 'completed' && p.slaStatus === 'approaching' && !ready;
       if (projectsFilters.status === 'on_track') return p.stage !== 'completed' && p.slaStatus === 'ok' && !ready;
       return true;
+    });
+  }
+
+  // Dependent on me filter: next-action owner is the current coordinator
+  if (projectsDependentOnMe && currentCoord !== '__all__') {
+    const firstName = currentCoord.split(' ')[0];
+    list = list.filter(p => {
+      if (p.stage === 'completed') return false;
+      const owner = p.nextActionOwner || p.coord;
+      // Match first name or full name against current coord
+      return owner && (owner === currentCoord || owner.split(' ')[0] === firstName);
     });
   }
 
@@ -2709,7 +2879,7 @@ function renderProjects() {
   const installers = [...new Set(fullPool.map(p => p.installer || '—'))].sort();
   const utilities = [...new Set(fullPool.map(p => p.utility))].sort();
 
-  const activeFilterCount = Object.values(projectsFilters).filter(v => v !== null).length;
+  const activeFilterCount = Object.values(projectsFilters).filter(v => v !== null).length + (projectsDependentOnMe ? 1 : 0);
 
   const CAP = 200;
   const shown = list.slice(0, CAP);
@@ -2758,13 +2928,16 @@ function renderProjects() {
             ${activeFilterCount > 0 ? ` · <button class="text-haven-forest hover:underline" onclick="clearAllProjFilters()">Clear ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}</button>` : ''}
           </p>
         </div>
-        <div class="relative">
-          <input type="text" id="projSearch" placeholder="Search name, city, project #..." value="${projectsSearch.replace(/"/g, '&quot;')}"
-            class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-72" />
-          <svg class="absolute left-2.5 top-2 w-4 h-4 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-          </svg>
-          ${projectsSearch ? `<button onclick="clearProjSearch()" class="absolute right-2 top-2 text-haven-muted hover:text-haven-ink text-sm">×</button>` : ''}
+        <div class="flex items-center gap-2 flex-wrap">
+          <button class="filter-chip ${projectsDependentOnMe ? 'active' : ''}" onclick="toggleProjDependentOnMe()" ${currentCoord === '__all__' ? 'disabled title="Select a coordinator first"' : ''} style="${currentCoord === '__all__' ? 'opacity:0.4;cursor:not-allowed;' : ''}">Dependent on me</button>
+          <div class="relative">
+            <input type="text" id="projSearch" placeholder="Search name, city, project #..." value="${projectsSearch.replace(/"/g, '&quot;')}"
+              class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-72" />
+            <svg class="absolute left-2.5 top-2 w-4 h-4 text-haven-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            ${projectsSearch ? `<button onclick="clearProjSearch()" class="absolute right-2 top-2 text-haven-muted hover:text-haven-ink text-sm">×</button>` : ''}
+          </div>
         </div>
       </div>
 
@@ -2872,9 +3045,15 @@ window.setProjFilter = (col, value) => {
 window.clearAllProjFilters = () => {
   projectsFilters = { stage: null, coord: null, installer: null, utility: null, status: null };
   projectsSearch = '';
+  projectsDependentOnMe = false;
   render();
 };
 window.clearProjSearch = () => { projectsSearch = ''; render(); };
+window.toggleProjDependentOnMe = () => {
+  if (currentCoord === '__all__') return;
+  projectsDependentOnMe = !projectsDependentOnMe;
+  render();
+};
 
 
 // ============================================================
@@ -2938,31 +3117,45 @@ function renderTasks(installerOnly) {
       return a.dueInDays - b.dueInDays;
     });
     const sorted = allSorted.slice(0, CAP);
+    const getTaskAssignee = (t) => {
+      if (taskAssignees[t.id]) return taskAssignees[t.id];
+      const proj = PROJECTS.find(p => p.id === t.projectId);
+      return proj ? proj.coord : '—';
+    };
+    const visibleIds_set = new Set(sorted.map(t => t.id));
+    const visibleSelectedCount = sorted.filter(t => selectedTasks.has(t.id) && !isTaskDone(t)).length;
+    const selectableCount = sorted.filter(t => !isTaskDone(t)).length;
+    const allSelected = selectableCount > 0 && visibleSelectedCount === selectableCount;
+
     bodyHtml = `
       <table class="w-full text-sm">
         <thead class="bg-haven-bg border-b border-haven-border">
           <tr class="text-left text-xs text-haven-muted uppercase tracking-wide">
-            <th class="px-4 py-2.5 w-8"></th>
+            <th class="px-3 py-2.5 w-8">${installerOnly ? '' : `<div class="checkbox ${allSelected ? 'checked' : ''}" onclick="toggleSelectAllTasks()" title="Select all visible open tasks">${allSelected ? '✓' : ''}</div>`}</th>
+            <th class="px-3 py-2.5 w-8"></th>
             <th class="px-4 py-2.5">Task</th>
             <th class="px-4 py-2.5">Project</th>
-            ${installerOnly ? '' : '<th class="px-4 py-2.5">Coord</th>'}
+            ${installerOnly ? '' : '<th class="px-4 py-2.5">Assignee</th>'}
             <th class="px-4 py-2.5">Due</th>
           </tr>
         </thead>
-        <tbody>${sorted.length === 0 ? `<tr><td colspan="${installerOnly ? 4 : 5}" class="px-4 py-8 text-center text-haven-muted">No ${taskStatusFilter === 'completed' ? 'completed ' : taskStatusFilter === 'open' ? 'open ' : ''}tasks</td></tr>` : sorted.map(t => {
+        <tbody>${sorted.length === 0 ? `<tr><td colspan="${installerOnly ? 5 : 6}" class="px-4 py-8 text-center text-haven-muted">No ${taskStatusFilter === 'completed' ? 'completed ' : taskStatusFilter === 'open' ? 'open ' : ''}tasks</td></tr>` : sorted.map(t => {
           const proj = PROJECTS.find(p => p.id === t.projectId);
           const overdue = t.dueInDays < 0;
           const dueText = t.dueInDays < 0 ? `${-t.dueInDays}d late` : t.dueInDays === 0 ? 'today' : `in ${t.dueInDays}d`;
           const done = isTaskDone(t);
+          const selected = selectedTasks.has(t.id);
+          const assignee = getTaskAssignee(t);
           return `
-            <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${proj.id}">
-              <td class="px-4 py-2.5"><div class="checkbox ${done ? 'checked' : ''}" onclick="event.stopPropagation(); toggleTask('${t.id}')">${done ? '✓' : ''}</div></td>
+            <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer ${selected ? 'bg-haven-bg' : ''}" data-project-id="${proj.id}">
+              <td class="px-3 py-2.5">${installerOnly || done ? '' : `<div class="checkbox ${selected ? 'checked' : ''}" onclick="event.stopPropagation(); toggleTaskSelection('${t.id}')">${selected ? '✓' : ''}</div>`}</td>
+              <td class="px-3 py-2.5"><div class="checkbox ${done ? 'checked' : ''}" onclick="event.stopPropagation(); toggleTask('${t.id}')" title="Mark done">${done ? '✓' : ''}</div></td>
               <td class="px-4 py-2.5">
                 <div class="font-medium ${done ? 'line-through text-haven-muted' : ''}">${t.title}</div>
                 <div class="text-xs text-haven-muted mt-0.5">${STAGE_LABELS[t.stage]}${t.autoGenerated ? ' · auto' : ''}</div>
               </td>
               <td class="px-4 py-2.5 text-haven-forest">${proj.name}</td>
-              ${installerOnly ? '' : `<td class="px-4 py-2.5">${avatar(proj.coord, 20)} <span class="text-xs ml-1 align-middle">${proj.coord.split(' ')[0]}</span></td>`}
+              ${installerOnly ? '' : `<td class="px-4 py-2.5">${avatar(assignee, 20)} <span class="text-xs ml-1 align-middle">${assignee.split(' ')[0]}</span></td>`}
               <td class="px-4 py-2.5 ${overdue && !done ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${dueText}</td>
             </tr>`;
         }).join('')}</tbody>
@@ -2999,6 +3192,19 @@ function renderTasks(installerOnly) {
         </div>
       ` : ''}
 
+      ${!installerOnly && selectedTasks.size > 0 ? `
+        <div class="mb-4 px-4 py-3 rounded-md border flex items-center gap-3 flex-wrap" style="background:#013300; color:white; border-color:#013300;">
+          <div class="font-medium text-sm">${selectedTasks.size} task${selectedTasks.size === 1 ? '' : 's'} selected</div>
+          <div class="h-4 w-px" style="background:rgba(255,255,255,0.3);"></div>
+          <button class="text-xs px-3 py-1.5 rounded font-medium" style="background:#C5E84A; color:#013300;" ${currentCoord === '__all__' ? 'disabled title="Select a coordinator first" style="background:#C5E84A;color:#013300;opacity:0.4;cursor:not-allowed;"' : ''} onclick="batchClaimTasks()">Claim to me</button>
+          <button class="text-xs px-3 py-1.5 rounded font-medium hover:opacity-90" style="background:rgba(255,255,255,0.15); color:white;" onclick="batchMarkComplete()">Mark complete</button>
+          <button class="text-xs px-3 py-1.5 rounded font-medium hover:opacity-90" style="background:rgba(255,255,255,0.15); color:white;" onclick="batchSendToRework()">Send to rework</button>
+          <button class="text-xs px-3 py-1.5 rounded font-medium hover:opacity-90" style="background:rgba(255,255,255,0.15); color:white;" onclick="batchAddBlocker()">Add blocker</button>
+          <div class="flex-1"></div>
+          <button class="text-xs hover:underline" style="color:white;" onclick="clearTaskSelection()">Clear</button>
+        </div>
+      ` : ''}
+
       <div class="card p-0 overflow-hidden">${bodyHtml}</div>
     </div>
   `;
@@ -3006,6 +3212,83 @@ function renderTasks(installerOnly) {
 }
 
 window.toggleBatchMode = () => { taskBatchMode = !taskBatchMode; render(); };
+window.toggleTaskSelection = (id) => {
+  if (selectedTasks.has(id)) selectedTasks.delete(id);
+  else selectedTasks.add(id);
+  render();
+};
+window.toggleSelectAllTasks = () => {
+  // Select/deselect all visible open tasks
+  const visible = visibleProjects();
+  const visibleIds = new Set(visible.map(p => p.id));
+  const visibleTasks = TASKS.filter(t => visibleIds.has(t.projectId) && t.ownerType === 'internal' && t.status !== 'done' && !completedTasks.has(t.id));
+  const scoped = taskStatusFilter === 'completed' ? [] : visibleTasks;
+  const allSelected = scoped.every(t => selectedTasks.has(t.id)) && scoped.length > 0;
+  if (allSelected) scoped.forEach(t => selectedTasks.delete(t.id));
+  else scoped.forEach(t => selectedTasks.add(t.id));
+  render();
+};
+window.clearTaskSelection = () => { selectedTasks.clear(); render(); };
+window.batchClaimTasks = () => {
+  if (currentCoord === '__all__') return;
+  selectedTasks.forEach(id => { taskAssignees[id] = currentCoord; });
+  selectedTasks.clear();
+  render();
+};
+window.batchMarkComplete = () => {
+  selectedTasks.forEach(id => completedTasks.add(id));
+  selectedTasks.clear();
+  render();
+};
+window.batchSendToRework = () => {
+  // Mark the associated projects as rework. Demo: just increment reworkCount on each affected project
+  // and provide a generic reason.
+  const affectedProjects = new Set();
+  selectedTasks.forEach(id => {
+    const t = TASKS.find(x => x.id === id);
+    if (!t) return;
+    const p = PROJECTS.find(x => x.id === t.projectId);
+    if (!p) return;
+    if (affectedProjects.has(p.id)) return;
+    affectedProjects.add(p.id);
+    p.reworkCount = (p.reworkCount || 0) + 1;
+    p.reworkReason = p.reworkReason || 'Sent to rework from task queue';
+    p.reworkedDaysAgo = 0;
+    const stageIdx = STAGE_ORDER.indexOf(p.stage);
+    p.reworkFromStage = p.reworkFromStage || STAGE_ORDER[Math.min(STAGE_ORDER.length - 1, stageIdx + 1)] || p.stage;
+  });
+  alert(`${affectedProjects.size} project${affectedProjects.size === 1 ? '' : 's'} sent to rework. View in Tracking → Rework.`);
+  selectedTasks.clear();
+  render();
+};
+window.batchAddBlocker = () => {
+  // Simple demo: add a generic "waiting on external" blocker to each affected project
+  const affectedProjects = new Set();
+  selectedTasks.forEach(id => {
+    const t = TASKS.find(x => x.id === id);
+    if (!t) return;
+    affectedProjects.add(t.projectId);
+  });
+  affectedProjects.forEach(pid => {
+    const b = {
+      id: `b${blockerId++}`,
+      projectId: pid,
+      code: 'other',
+      label: 'Blocker added from batch action',
+      category: 'internal',
+      openedDaysAgo: 0,
+      openedAt: Date.now(),
+      resolvedAt: null,
+      note: 'Added via task queue batch action',
+    };
+    BLOCKERS.push(b);
+    if (!BLOCKERS_BY_PROJECT[pid]) BLOCKERS_BY_PROJECT[pid] = [];
+    BLOCKERS_BY_PROJECT[pid].push(b);
+  });
+  alert(`Blocker added to ${affectedProjects.size} project${affectedProjects.size === 1 ? '' : 's'}.`);
+  selectedTasks.clear();
+  render();
+};
 window.setTaskStatusFilter = (f) => { taskStatusFilter = f; render(); };
 window.toggleTask = (id) => {
   if (completedTasks.has(id)) completedTasks.delete(id);
@@ -5111,6 +5394,217 @@ window.openAddBlocker = (projectId) => {
 };
 
 // ============================================================
+// REWORK
+// ============================================================
+let reworkSort = { col: 'reworked_days_ago', dir: 'asc' };
+let reworkFilterStage = null;
+
+function getReworkProjects() {
+  const visible = visibleProjects();
+  return visible.filter(p => (p.reworkCount || 0) > 0);
+}
+
+function renderRework() {
+  const allRework = getReworkProjects();
+  let list = allRework.slice();
+
+  if (reworkFilterStage) list = list.filter(p => p.stage === reworkFilterStage);
+
+  // Sort
+  const acc = {
+    reworked_days_ago: p => p.reworkedDaysAgo || 0,
+    customer: p => p.name.toLowerCase(),
+    stage: p => STAGE_ORDER.indexOf(p.stage),
+    returned_from: p => STAGE_ORDER.indexOf(p.reworkFromStage || p.stage),
+    rework_count: p => p.reworkCount || 0,
+    coord: p => (p.coord || '').toLowerCase(),
+  };
+  const accFn = acc[reworkSort.col] || acc.reworked_days_ago;
+  const dir = reworkSort.dir === 'asc' ? 1 : -1;
+  list.sort((a, b) => {
+    const av = accFn(a), bv = accFn(b);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+
+  // Rework rate metrics
+  const activeTotal = PROJECTS.filter(p => p.stage !== 'completed').length;
+  const reworkRate = activeTotal > 0 ? Math.round((allRework.length / activeTotal) * 100) : 0;
+
+  // By stage
+  const byStage = {};
+  allRework.forEach(p => { byStage[p.stage] = (byStage[p.stage] || 0) + 1; });
+  const stageList = Object.keys(byStage).sort((a, b) => byStage[b] - byStage[a]);
+
+  // By coord
+  const byCoord = {};
+  const coordActive = {};
+  PROJECTS.filter(p => p.stage !== 'completed').forEach(p => {
+    coordActive[p.coord] = (coordActive[p.coord] || 0) + 1;
+    if ((p.reworkCount || 0) > 0) byCoord[p.coord] = (byCoord[p.coord] || 0) + 1;
+  });
+  const coordRates = Object.keys(coordActive).map(c => ({
+    coord: c,
+    active: coordActive[c],
+    rework: byCoord[c] || 0,
+    rate: coordActive[c] > 0 ? Math.round(((byCoord[c] || 0) / coordActive[c]) * 100) : 0,
+  })).sort((a, b) => b.rate - a.rate);
+
+  // By installer
+  const byInstaller = {};
+  const installerActive = {};
+  PROJECTS.filter(p => p.stage !== 'completed' && p.installer).forEach(p => {
+    installerActive[p.installer] = (installerActive[p.installer] || 0) + 1;
+    if ((p.reworkCount || 0) > 0) byInstaller[p.installer] = (byInstaller[p.installer] || 0) + 1;
+  });
+  const installerRates = Object.keys(installerActive).map(i => ({
+    installer: i,
+    active: installerActive[i],
+    rework: byInstaller[i] || 0,
+    rate: installerActive[i] > 0 ? Math.round(((byInstaller[i] || 0) / installerActive[i]) * 100) : 0,
+  })).sort((a, b) => b.rate - a.rate);
+
+  const th = (key, label) => {
+    const isSorted = reworkSort.col === key;
+    const icon = isSorted ? (reworkSort.dir === 'asc' ? '↑' : '↓') : '<span style="color:#C4C4C0">↕</span>';
+    return `<th class="px-3 py-2.5 text-left"><button class="uppercase tracking-wide text-xs text-haven-muted hover:text-haven-forest flex items-center gap-1" onclick="toggleReworkSort('${key}')">${label} ${icon}</button></th>`;
+  };
+
+  const rateColor = (pct) => {
+    if (pct >= 15) return '#C44545';
+    if (pct >= 8) return '#E0A83A';
+    return '#2F7A3E';
+  };
+
+  main.innerHTML = `
+    <div class="p-6">
+      <div class="mb-5">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Rework</h1>
+        <p class="text-sm text-haven-muted mt-1">Projects sent back to a prior stage · ${allRework.length} active · ${reworkRate}% overall rework rate</p>
+      </div>
+
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="card">
+          <div class="text-xs uppercase tracking-wider text-haven-muted mb-1">Active in rework</div>
+          <div class="font-serif font-bold text-3xl text-haven-forest">${allRework.length}</div>
+          <div class="text-xs text-haven-muted mt-1">${reworkRate}% of active pipeline</div>
+        </div>
+        <div class="card">
+          <div class="text-xs uppercase tracking-wider text-haven-muted mb-2">By stage</div>
+          ${stageList.length === 0 ? '<div class="text-sm text-haven-muted">No rework</div>' : stageList.slice(0, 5).map(s => `
+            <div class="flex items-center justify-between py-0.5 text-sm">
+              <span>${STAGE_LABELS[s]}</span>
+              <span class="font-semibold">${byStage[s]}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div class="card">
+          <div class="text-xs uppercase tracking-wider text-haven-muted mb-2">Multiple reworks</div>
+          <div class="font-serif font-bold text-3xl text-haven-forest">${allRework.filter(p => p.reworkCount > 1).length}</div>
+          <div class="text-xs text-haven-muted mt-1">projects reworked more than once</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="card">
+          <h2 class="font-serif font-bold text-haven-forest mb-3">Rework rate by coordinator</h2>
+          <table class="w-full text-sm">
+            <thead><tr class="text-left text-xs text-haven-muted uppercase border-b border-haven-border">
+              <th class="pb-2">Coord</th>
+              <th class="pb-2 text-right">Active</th>
+              <th class="pb-2 text-right">Rework</th>
+              <th class="pb-2 text-right">Rate</th>
+            </tr></thead>
+            <tbody>
+              ${coordRates.map(r => `
+                <tr class="border-b border-haven-border">
+                  <td class="py-2">${avatar(r.coord, 18)} <span class="ml-1.5 align-middle text-xs">${r.coord.split(' ')[0]}</span></td>
+                  <td class="py-2 text-right text-haven-muted">${r.active}</td>
+                  <td class="py-2 text-right">${r.rework}</td>
+                  <td class="py-2 text-right font-semibold" style="color:${rateColor(r.rate)}">${r.rate}%</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h2 class="font-serif font-bold text-haven-forest mb-3">Rework rate by installer</h2>
+          <table class="w-full text-sm">
+            <thead><tr class="text-left text-xs text-haven-muted uppercase border-b border-haven-border">
+              <th class="pb-2">Installer</th>
+              <th class="pb-2 text-right">Active</th>
+              <th class="pb-2 text-right">Rework</th>
+              <th class="pb-2 text-right">Rate</th>
+            </tr></thead>
+            <tbody>
+              ${installerRates.map(r => `
+                <tr class="border-b border-haven-border">
+                  <td class="py-2 text-sm">${r.installer.split(' ')[0]}</td>
+                  <td class="py-2 text-right text-haven-muted">${r.active}</td>
+                  <td class="py-2 text-right">${r.rework}</td>
+                  <td class="py-2 text-right font-semibold" style="color:${rateColor(r.rate)}">${r.rate}%</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 mb-4 flex-wrap">
+        <button class="filter-chip ${reworkFilterStage === null ? 'active' : ''}" onclick="setReworkStageFilter(null)">All stages <span class="opacity-70 ml-1">${allRework.length}</span></button>
+        ${stageList.map(s => `<button class="filter-chip ${reworkFilterStage === s ? 'active' : ''}" onclick="setReworkStageFilter('${s}')">${STAGE_LABELS[s]} <span class="opacity-70 ml-1">${byStage[s]}</span></button>`).join('')}
+      </div>
+
+      <div class="card p-0 overflow-hidden">
+        ${list.length === 0 ? '<div class="p-8 text-center text-sm text-haven-muted">No rework projects in this view.</div>' : `
+          <table class="w-full text-sm">
+            <thead class="bg-haven-bg border-b border-haven-border">
+              <tr>
+                ${th('customer', 'Customer')}
+                ${th('stage', 'Current stage')}
+                ${th('returned_from', 'Sent back from')}
+                <th class="px-3 py-2.5 text-left"><span class="uppercase tracking-wide text-xs text-haven-muted">Reason</span></th>
+                ${th('reworked_days_ago', 'Age')}
+                ${th('rework_count', '# Times')}
+                ${th('coord', 'Coord')}
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map(p => {
+                const ageTone = p.reworkedDaysAgo > 14 ? 'text-haven-danger font-medium' : p.reworkedDaysAgo > 7 ? 'text-haven-warn' : 'text-haven-muted';
+                return `
+                  <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
+                    <td class="px-3 py-2.5">
+                      <div class="font-medium text-haven-forest">${p.name}</div>
+                      <div class="text-[11px] text-haven-muted">${p.projectNumber} · ${p.city}, ${p.state}</div>
+                    </td>
+                    <td class="px-3 py-2.5">${STAGE_LABELS[p.stage]}</td>
+                    <td class="px-3 py-2.5 text-xs"><span class="badge badge-neutral">${STAGE_LABELS[p.reworkFromStage] || '—'}</span></td>
+                    <td class="px-3 py-2.5 text-xs"><span class="truncate block max-w-[280px]" title="${p.reworkReason}">${p.reworkReason}</span></td>
+                    <td class="px-3 py-2.5 ${ageTone} tabular-nums">${p.reworkedDaysAgo}d</td>
+                    <td class="px-3 py-2.5 tabular-nums">${p.reworkCount}${p.reworkCount > 1 ? ' <span class="text-haven-danger">!</span>' : ''}</td>
+                    <td class="px-3 py-2.5">${avatar(p.coord, 18)} <span class="text-xs ml-1 align-middle">${p.coord.split(' ')[0]}</span></td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        `}
+      </div>
+    </div>
+  `;
+  attachProjectHandlers();
+}
+
+window.toggleReworkSort = (col) => {
+  if (reworkSort.col === col) reworkSort.dir = reworkSort.dir === 'asc' ? 'desc' : 'asc';
+  else reworkSort = { col, dir: 'asc' };
+  render();
+};
+window.setReworkStageFilter = (s) => { reworkFilterStage = s; render(); };
+
+// ============================================================
 // POST-INSTALL
 // ============================================================
 function renderPostInstall() {
@@ -5326,6 +5820,7 @@ window.clearPISearch = () => { postInstallSearch = ''; render(); };
 // ============================================================
 function renderMetrics() {
   const active = PROJECTS.filter(p => p.stage !== 'completed');
+  const completed = PROJECTS.filter(p => p.stage === 'completed');
 
   // Coord health
   const coordHealth = COORDINATORS.map(c => {
@@ -5339,6 +5834,55 @@ function renderMetrics() {
     };
   });
 
+  // ------------------------------------------------------------
+  // SLA COMPLIANCE DATA
+  // ------------------------------------------------------------
+  // Cycle time per stage: average days-in-stage for ACTIVE projects vs CA target
+  const stageSLA = STAGE_ORDER.map(stage => {
+    const inStage = active.filter(p => p.stage === stage);
+    const target = STAGE_TARGETS_CA[stage] || 10;
+    const avgDays = inStage.length > 0 ? inStage.reduce((s, p) => s + (p.daysInStage || 0), 0) / inStage.length : 0;
+    const onTrack = inStage.filter(p => (p.daysInStage || 0) <= target).length;
+    const compliancePct = inStage.length > 0 ? Math.round((onTrack / inStage.length) * 100) : null;
+    return {
+      stage,
+      label: STAGE_LABELS[stage],
+      target,
+      avgDays: Math.round(avgDays * 10) / 10,
+      count: inStage.length,
+      compliancePct,
+      overUnder: avgDays - target,
+    };
+  }).filter(s => s.count > 0);
+
+  // Compliance per coord: % of their active projects that are not SLA-breached
+  const coordSLA = COORDINATORS.map(c => {
+    const their = active.filter(p => getCoord(p) === c);
+    const compliant = their.filter(p => p.slaStatus !== 'breached').length;
+    const pct = their.length > 0 ? Math.round((compliant / their.length) * 100) : null;
+    // Break down by stage-bucket: pre-install vs post-install
+    const preInstall = their.filter(p => ['site_survey', 'design', 'permitting', 'scheduling'].includes(p.stage));
+    const install = their.filter(p => ['installation', 'inspection'].includes(p.stage));
+    const postInstall = their.filter(p => ['interconnection', 'rebate'].includes(p.stage));
+    const bucketPct = (arr) => arr.length === 0 ? null : Math.round((arr.filter(p => p.slaStatus !== 'breached').length / arr.length) * 100);
+    return {
+      coord: c,
+      total: their.length,
+      compliant,
+      pct,
+      prePct: bucketPct(preInstall), preCount: preInstall.length,
+      instPct: bucketPct(install), instCount: install.length,
+      postPct: bucketPct(postInstall), postCount: postInstall.length,
+    };
+  });
+
+  const slaPctColor = (pct) => {
+    if (pct === null) return '#6B7568';
+    if (pct >= 85) return '#2F7A3E';
+    if (pct >= 70) return '#E0A83A';
+    return '#C44545';
+  };
+
   main.innerHTML = `
     <div class="p-6 max-w-6xl">
       <div class="mb-6">
@@ -5349,6 +5893,72 @@ function renderMetrics() {
       ${renderBallInCourt()}
 
       ${renderInstallsByMonth()}
+
+      <div class="card mb-6">
+        <div class="flex items-baseline justify-between mb-4">
+          <h2 class="font-serif font-bold text-haven-forest">Cycle time vs SLA</h2>
+          <span class="text-xs text-haven-muted">Avg days in stage (active projects) vs CA target</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead><tr class="text-left text-xs text-haven-muted uppercase border-b border-haven-border">
+            <th class="pb-2">Stage</th>
+            <th class="pb-2 text-right">Projects</th>
+            <th class="pb-2 text-right">Target</th>
+            <th class="pb-2 text-right">Actual avg</th>
+            <th class="pb-2 text-right">Over / under</th>
+            <th class="pb-2 text-right">On-target %</th>
+          </tr></thead>
+          <tbody>
+            ${stageSLA.map(s => {
+              const over = s.overUnder > 0;
+              const pctColor = slaPctColor(s.compliancePct);
+              return `
+                <tr class="border-b border-haven-border">
+                  <td class="py-2 font-medium text-haven-forest">${s.label}</td>
+                  <td class="py-2 text-right text-haven-muted">${s.count}</td>
+                  <td class="py-2 text-right text-haven-muted">${s.target}d</td>
+                  <td class="py-2 text-right font-medium">${s.avgDays}d</td>
+                  <td class="py-2 text-right ${over ? 'text-haven-danger font-medium' : 'text-haven-ok font-medium'}">${over ? '+' : ''}${s.overUnder.toFixed(1)}d</td>
+                  <td class="py-2 text-right font-semibold" style="color:${pctColor}">${s.compliancePct}%</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card mb-6">
+        <div class="flex items-baseline justify-between mb-4">
+          <h2 class="font-serif font-bold text-haven-forest">SLA compliance by coordinator</h2>
+          <span class="text-xs text-haven-muted">% of their active projects not past SLA, across pipeline phase</span>
+        </div>
+        <table class="w-full text-sm">
+          <thead><tr class="text-left text-xs text-haven-muted uppercase border-b border-haven-border">
+            <th class="pb-2">Coordinator</th>
+            <th class="pb-2 text-right">Active</th>
+            <th class="pb-2 text-right">Overall</th>
+            <th class="pb-2 text-right">Pre-install</th>
+            <th class="pb-2 text-right">Install</th>
+            <th class="pb-2 text-right">Post-install</th>
+          </tr></thead>
+          <tbody>
+            ${coordSLA.map(c => {
+              const pctCell = (pct, count) => {
+                if (pct === null) return `<span class="text-haven-muted">—</span>`;
+                return `<span class="font-semibold" style="color:${slaPctColor(pct)}">${pct}%</span> <span class="text-[10px] text-haven-muted">(${count})</span>`;
+              };
+              return `
+                <tr class="border-b border-haven-border cursor-pointer hover:bg-haven-bg" onclick="switchToCoord('${c.coord}')">
+                  <td class="py-2">${avatar(c.coord, 20)} <span class="ml-2 align-middle">${c.coord}</span></td>
+                  <td class="py-2 text-right text-haven-muted">${c.total}</td>
+                  <td class="py-2 text-right">${pctCell(c.pct, c.total)}</td>
+                  <td class="py-2 text-right">${pctCell(c.prePct, c.preCount)}</td>
+                  <td class="py-2 text-right">${pctCell(c.instPct, c.instCount)}</td>
+                  <td class="py-2 text-right">${pctCell(c.postPct, c.postCount)}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
 
       <div class="card mb-6">
         <h2 class="font-serif font-bold text-haven-forest mb-4">Coordinator health</h2>
