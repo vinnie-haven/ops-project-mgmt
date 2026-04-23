@@ -103,10 +103,10 @@ tailwind.config = {
         <button class="view-toggle-btn flex-1" data-mode="installer" id="toggleInstaller">Installer</button>
       </div>
     </div>
-    <div class="px-3 py-3 border-b border-haven-border" id="coordSelector">
-      <div class="text-[10px] uppercase tracking-wider text-haven-muted mb-1.5 px-1">Viewing as</div>
-      <select id="coordSelect" class="w-full px-2 py-1.5 border border-haven-border rounded text-sm bg-white"></select>
-      <div id="coordContext" class="text-[11px] text-haven-muted mt-2 px-1"></div>
+    <div class="px-3 py-3 border-b border-haven-border" id="stageSelector">
+      <div class="text-[10px] uppercase tracking-wider text-haven-muted mb-1.5 px-1">Viewing stage</div>
+      <select id="stageSelect" class="w-full px-2 py-1.5 border border-haven-border rounded text-sm bg-white"></select>
+      <div id="stageContext" class="text-[11px] text-haven-muted mt-2 px-1"></div>
     </div>
     <nav class="flex-1 py-2 px-2 overflow-y-auto" id="nav"></nav>
     <div class="p-3 border-t border-haven-border">
@@ -381,8 +381,15 @@ const PROJECTS_RAW = [
   function riskySignals(stage, target) {
     const riskRoll = rand();
     let daysInStage, priority, nextAction, nextActionDueInDays, lastTouchedDaysAgo, waitingOn;
-    if (riskRoll < 0.10) {
-      daysInStage = target + between(2, 18);
+    if (riskRoll < 0.04) {
+      // Long-tail stuck deals — these are the ones that show up as >90 days in the Stuck Deals report
+      daysInStage = target + between(60, 180);
+      priority = rand() < 0.6 ? 'urgent' : 'high';
+      nextAction = rand() < 0.5 ? null : genNextAction(stage);
+      nextActionDueInDays = nextAction ? between(-30, -5) : null;
+      lastTouchedDaysAgo = between(10, 40);
+    } else if (riskRoll < 0.14) {
+      daysInStage = target + between(2, 40);
       priority = rand() < 0.5 ? 'urgent' : 'high';
       nextAction = rand() < 0.4 ? null : genNextAction(stage);
       nextActionDueInDays = nextAction ? between(-8, -1) : null;
@@ -1447,7 +1454,8 @@ function buildEmails(p) {
 // STATE
 // ============================================================
 let viewMode = 'internal';
-let currentCoord = 'Shane Brennan';
+let currentCoord = '__all__'; // Legacy coord filter, now locked to "all" — stage selector replaces this for Projects/Tasks/Blockers
+let currentStage = '__all__'; // New stage selector, drives filtering on Projects/Tasks/Blockers pages
 let currentView = 'pipeline';
 let photoFilter = 'all';
 let pipelineFilter = 'all'; // all | ready_to_advance | at_risk
@@ -1546,6 +1554,14 @@ function visibleProjects() {
   return PROJECTS.filter(p => getCoord(p) === currentCoord);
 }
 
+// Stage-scoped projects: visibleProjects filtered by the sidebar "Viewing stage" selector.
+// Used by Projects, Tasks, and Blockers pages. Pipeline does NOT use this (it buckets by stage itself).
+function stageScopedProjects() {
+  const base = visibleProjects();
+  if (currentStage === '__all__') return base;
+  return base.filter(p => p.stage === currentStage);
+}
+
 // Which projects are "ready to advance"?
 // Definition: at current stage for > 0 days, all auto-generated tasks for this stage are done, not already at end
 function isReadyToAdvance(p) {
@@ -1590,6 +1606,7 @@ const NAV_INTERNAL = [
   { view: 'schedule', label: 'Schedule', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
   { group: 'Reporting' },
   { view: 'metrics', label: 'Metrics', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>' },
+  { view: 'stuck', label: 'Stuck Deals', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>' },
   { view: 'monthly_stats', label: 'Monthly Stats', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>' },
 ];
 
@@ -1644,36 +1661,49 @@ function renderNav() {
   });
 }
 
-function renderCoordSelector() {
-  const sel = document.getElementById('coordSelect');
+function renderStageSelector() {
+  const sel = document.getElementById('stageSelect');
+  // Build options: "All stages" + each pipeline stage + Completed
+  const stageOptions = STAGE_ORDER.concat(['completed']);
   const opts = [
-    `<option value="__all__">All coordinators</option>`,
-    ...COORDINATORS.map(c => `<option value="${c}" ${currentCoord === c ? 'selected' : ''}>${c}</option>`)
+    `<option value="__all__">All stages</option>`,
+    ...stageOptions.map(s => {
+      const label = s === 'completed' ? 'Completed' : STAGE_LABELS[s];
+      return `<option value="${s}" ${currentStage === s ? 'selected' : ''}>${label}</option>`;
+    })
   ];
   sel.innerHTML = opts.join('');
-  sel.value = currentCoord;
-  const context = document.getElementById('coordContext');
-  if (currentCoord === '__all__') {
+  sel.value = currentStage;
+  const context = document.getElementById('stageContext');
+  if (currentStage === '__all__') {
     const active = PROJECTS.filter(p => p.stage !== 'completed').length;
-    context.innerHTML = `<span class="text-haven-muted">Leadership · ${active} active</span>`;
+    context.innerHTML = `<span class="text-haven-muted">${active} active across pipeline</span>`;
+  } else if (currentStage === 'completed') {
+    const count = PROJECTS.filter(p => p.stage === 'completed').length;
+    context.innerHTML = `<span class="text-haven-muted">${count} completed</span>`;
   } else {
-    const count = PROJECTS.filter(p => p.stage !== 'completed' && getCoord(p) === currentCoord).length;
-    const attn = getCoordAttentionCount(currentCoord);
-    context.innerHTML = `<span class="text-haven-muted">${count} active${attn > 0 ? ` · <span class="text-haven-danger">${attn} at risk</span>` : ''}</span>`;
+    const count = PROJECTS.filter(p => p.stage === currentStage).length;
+    const atRisk = PROJECTS.filter(p => p.stage === currentStage && p.riskLevel === 'high').length;
+    context.innerHTML = `<span class="text-haven-muted">${count} in stage${atRisk > 0 ? ` · <span class="text-haven-danger">${atRisk} at risk</span>` : ''}</span>`;
   }
 }
 
+// Backward-compat alias: some older code paths still call renderCoordSelector.
+function renderCoordSelector() { renderStageSelector(); }
+
 document.getElementById('toggleInternal').addEventListener('click', () => setMode('internal'));
 document.getElementById('toggleInstaller').addEventListener('click', () => setMode('installer'));
-document.getElementById('coordSelect').addEventListener('change', (e) => {
-  currentCoord = e.target.value;
-  renderCoordSelector(); renderNav(); render();
+document.getElementById('stageSelect').addEventListener('change', (e) => {
+  currentStage = e.target.value;
+  // Clear task selection since the visible set has changed
+  selectedTasks.clear();
+  renderStageSelector(); renderNav(); render();
 });
 
 function setMode(mode) {
   viewMode = mode;
   document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-  document.getElementById('coordSelector').style.display = mode === 'installer' ? 'none' : 'block';
+  document.getElementById('stageSelector').style.display = mode === 'installer' ? 'none' : 'block';
   currentView = mode === 'installer' ? 'dashboard' : 'pipeline';
   pipelineFilter = 'all';
   renderNav(); render(); closeModal();
@@ -1690,6 +1720,7 @@ function render() {
     else if (currentView === 'post_install') renderPostInstall();
     else if (currentView === 'schedule') renderSchedule();
     else if (currentView === 'metrics') renderMetrics();
+    else if (currentView === 'stuck') renderStuck();
     else if (currentView === 'monthly_stats') renderMonthlyStats();
     else renderPipeline();
   } else {
@@ -2705,6 +2736,118 @@ function subBucketForProject(p) {
   return null;
 }
 
+// ============================================================
+// STUCK DEALS — statuses projects get wedged in, used by Reporting → Stuck Deals
+// ============================================================
+// A project is "stuck" when its days-in-stage exceeds the stuck threshold for its
+// current stage. We map to a finer-grained status label than the sub-bucket, since
+// the ops team tracks stuck concentrations by very specific reasons.
+const STUCK_STAGE_THRESHOLDS = {
+  site_survey: 14,
+  design: 21,
+  permitting: 45,
+  scheduling: 14,
+  installation: 10,
+  inspection: 30,
+  interconnection: 45,
+  rebate: 30,
+};
+
+// Catalog of stuck statuses, each with its phase label + a short description.
+// Order matters — higher-priority matches come first within each phase.
+const STUCK_STATUS_CATALOG = {
+  'QA Hold':                                { phase: 'Site Survey QA' },
+  'Site Survey Scheduled':                  { phase: 'Site Survey' },
+  'Site Survey Awaiting Customer':          { phase: 'Site Survey' },
+  'Planset Drafting':                       { phase: 'Design' },
+  'Planset Review':                         { phase: 'Design' },
+  'Planset Revision (active rework)':       { phase: 'Design' },
+  'Planset Sent for Signature':             { phase: 'Design' },
+  'Permit Submitted (waiting on AHJ)':      { phase: 'Permitting' },
+  'Permit Rejected':                        { phase: 'Permitting' },
+  'Permit Resubmitted':                     { phase: 'Permitting' },
+  'Ready to Schedule Install':              { phase: 'Scheduling' },
+  'Install Date Unconfirmed':               { phase: 'Scheduling' },
+  'Ready to Install':                       { phase: 'Installation' },
+  'Install Complete — Awaiting Inspection': { phase: 'Installation' },
+  'Need to Request Inspection':             { phase: 'Inspection' },
+  'Inspection Scheduled':                   { phase: 'Inspection' },
+  'Pending Fire Inspection':                { phase: 'Inspection' },
+  'Meter Collar Needed Before Final Inspection': { phase: 'Inspection' },
+  'Plan Revision Needed Before Inspection': { phase: 'Inspection' },
+  'PTO App Submitted (waiting on utility)': { phase: 'Interconnection' },
+  'PTO Clarification Requested':            { phase: 'Interconnection' },
+  'ICF Ready to Submit':                    { phase: 'Rebate' },
+  'ICF Submitted — Awaiting Review':        { phase: 'Rebate' },
+};
+
+// Map a project to its stuck status, or null if it's moving fine.
+function stuckStatusForProject(p) {
+  if (!p || p.stage === 'completed') return null;
+  const threshold = STUCK_STAGE_THRESHOLDS[p.stage];
+  if (!threshold) return null;
+  if ((p.daysInStage || 0) < threshold) return null;
+
+  const sub = subBucketForProject(p);
+  const blockers = getProjectBlockers(p.id);
+  const hasBlocker = blockers.length > 0;
+
+  // Refine by stage + sub-bucket + blockers for specific status labels
+  switch (p.stage) {
+    case 'site_survey':
+      if (sub === 'survey_complete') return 'QA Hold';
+      if (sub === 'ready_to_schedule') return 'Site Survey Awaiting Customer';
+      return 'Site Survey Scheduled';
+    case 'design':
+      if (sub === 'revisions_requested') return 'Planset Revision (active rework)';
+      if (sub === 'awaiting_customer') return 'Planset Sent for Signature';
+      if (sub === 'in_progress') return 'Planset Drafting';
+      if (sub === 'ready_to_start') return 'Planset Drafting';
+      return 'Planset Review';
+    case 'permitting':
+      if (sub === 'corrections_requested') {
+        // Deterministic split via project ID hash — about 2/3 rejected, 1/3 resubmitted
+        const h = p.id.charCodeAt(p.id.length - 1);
+        return h % 3 === 0 ? 'Permit Resubmitted' : 'Permit Rejected';
+      }
+      if (sub === 'submitted') return 'Permit Submitted (waiting on AHJ)';
+      return 'Permit Submitted (waiting on AHJ)';
+    case 'scheduling':
+      if (sub === 'date_proposed') return 'Install Date Unconfirmed';
+      return 'Ready to Schedule Install';
+    case 'installation':
+      if (sub === 'complete_awaiting_inspection') return 'Install Complete — Awaiting Inspection';
+      return 'Ready to Install';
+    case 'inspection': {
+      // Varied reasons inspections get stuck
+      const h = p.id.charCodeAt(p.id.length - 1);
+      if (sub === 'failed') return 'Plan Revision Needed Before Inspection';
+      if (sub === 'rework_needed') {
+        return h % 2 === 0 ? 'Meter Collar Needed Before Final Inspection' : 'Plan Revision Needed Before Inspection';
+      }
+      if (sub === 'scheduled') {
+        return h % 3 === 0 ? 'Pending Fire Inspection' : 'Inspection Scheduled';
+      }
+      // Default — need to request inspection
+      return 'Need to Request Inspection';
+    }
+    case 'interconnection':
+      if (sub === 'utility_clarification' || sub === 'application_failed') return 'PTO Clarification Requested';
+      return 'PTO App Submitted (waiting on utility)';
+    case 'rebate':
+      if (sub === 'icf_submitted') return 'ICF Submitted — Awaiting Review';
+      if (sub === 'ready_to_submit') return 'ICF Ready to Submit';
+      return 'ICF Submitted — Awaiting Review';
+  }
+  return null;
+}
+
+// Days-stuck for a project — same as daysInStage, but we treat it as its own concept
+// so it can be overridden later if the data model evolves.
+function daysStuckForProject(p) {
+  return p.daysInStage || 0;
+}
+
 // Apply search, state filter, and the existing pipelineFilter
 function pipelineFilteredProjects() {
   let list = visibleProjects().filter(p => p.stage !== 'completed');
@@ -2804,7 +2947,7 @@ let projectsDependentOnMe = false;
 let projectsOpenFilter = null;
 
 function renderProjects() {
-  let list = visibleProjects().slice();
+  let list = stageScopedProjects().slice();
 
   // Apply column filters
   if (projectsFilters.stage) list = list.filter(p => p.stage === projectsFilters.stage);
@@ -2823,14 +2966,11 @@ function renderProjects() {
     });
   }
 
-  // Dependent on me filter: next-action owner is the current coordinator
-  if (projectsDependentOnMe && currentCoord !== '__all__') {
-    const firstName = currentCoord.split(' ')[0];
+  // "Needs action" filter: projects actively waiting on us (internal) with a defined next action
+  if (projectsDependentOnMe) {
     list = list.filter(p => {
       if (p.stage === 'completed') return false;
-      const owner = p.nextActionOwner || p.coord;
-      // Match first name or full name against current coord
-      return owner && (owner === currentCoord || owner.split(' ')[0] === firstName);
+      return p.waitingOn === 'internal' && !!p.nextAction;
     });
   }
 
@@ -2924,12 +3064,12 @@ function renderProjects() {
         <div>
           <h1 class="font-serif text-2xl font-bold text-haven-forest">Projects</h1>
           <p class="text-sm text-haven-muted mt-1">
-            ${currentCoord === '__all__' ? 'All coordinators' : currentCoord} · ${list.length} shown of ${visibleProjects().length}
+            ${currentStage === '__all__' ? 'All stages' : currentStage === 'completed' ? 'Completed' : STAGE_LABELS[currentStage]} · ${list.length} shown of ${stageScopedProjects().length}
             ${activeFilterCount > 0 ? ` · <button class="text-haven-forest hover:underline" onclick="clearAllProjFilters()">Clear ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}</button>` : ''}
           </p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
-          <button class="filter-chip ${projectsDependentOnMe ? 'active' : ''}" onclick="toggleProjDependentOnMe()" ${currentCoord === '__all__' ? 'disabled title="Select a coordinator first"' : ''} style="${currentCoord === '__all__' ? 'opacity:0.4;cursor:not-allowed;' : ''}">Dependent on me</button>
+          <button class="filter-chip ${projectsDependentOnMe ? 'active' : ''}" onclick="toggleProjDependentOnMe()" title="Projects waiting on internal action">Needs action</button>
           <div class="relative">
             <input type="text" id="projSearch" placeholder="Search name, city, project #..." value="${projectsSearch.replace(/"/g, '&quot;')}"
               class="pl-8 pr-8 py-1.5 border border-haven-border rounded-md text-sm bg-white w-72" />
@@ -3050,7 +3190,6 @@ window.clearAllProjFilters = () => {
 };
 window.clearProjSearch = () => { projectsSearch = ''; render(); };
 window.toggleProjDependentOnMe = () => {
-  if (currentCoord === '__all__') return;
   projectsDependentOnMe = !projectsDependentOnMe;
   render();
 };
@@ -3060,7 +3199,7 @@ window.toggleProjDependentOnMe = () => {
 // TASKS — with batch mode grouping
 // ============================================================
 function renderTasks(installerOnly) {
-  const visible = visibleProjects();
+  const visible = installerOnly ? visibleProjects() : stageScopedProjects();
   const visibleIds = new Set(visible.map(p => p.id));
   let tasks = TASKS.filter(t => visibleIds.has(t.projectId) && (installerOnly ? t.ownerType === 'installer' : t.ownerType === 'internal'));
 
@@ -3170,7 +3309,7 @@ function renderTasks(installerOnly) {
       <div class="flex items-center justify-between mb-5">
         <div>
           <h1 class="font-serif text-2xl font-bold text-haven-forest">${installerOnly ? 'My Tasks' : 'Tasks'}</h1>
-          <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentCoord === '__all__' ? 'All coordinators' : currentCoord)} · ${tasks.length} shown</p>
+          <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentStage === '__all__' ? 'All stages' : currentStage === 'completed' ? 'Completed' : STAGE_LABELS[currentStage])} · ${tasks.length} shown</p>
         </div>
         <div class="flex items-center gap-2">
           ${!installerOnly ? `<button class="filter-chip ${taskBatchMode ? 'active' : ''}" onclick="toggleBatchMode()">Batch mode</button>` : ''}
@@ -3196,8 +3335,7 @@ function renderTasks(installerOnly) {
         <div class="mb-4 px-4 py-3 rounded-md border flex items-center gap-3 flex-wrap" style="background:#013300; color:white; border-color:#013300;">
           <div class="font-medium text-sm">${selectedTasks.size} task${selectedTasks.size === 1 ? '' : 's'} selected</div>
           <div class="h-4 w-px" style="background:rgba(255,255,255,0.3);"></div>
-          <button class="text-xs px-3 py-1.5 rounded font-medium" style="background:#C5E84A; color:#013300;" ${currentCoord === '__all__' ? 'disabled title="Select a coordinator first" style="background:#C5E84A;color:#013300;opacity:0.4;cursor:not-allowed;"' : ''} onclick="batchClaimTasks()">Claim to me</button>
-          <button class="text-xs px-3 py-1.5 rounded font-medium hover:opacity-90" style="background:rgba(255,255,255,0.15); color:white;" onclick="batchMarkComplete()">Mark complete</button>
+          <button class="text-xs px-3 py-1.5 rounded font-medium" style="background:#C5E84A; color:#013300;" onclick="batchMarkComplete()">Mark complete</button>
           <button class="text-xs px-3 py-1.5 rounded font-medium hover:opacity-90" style="background:rgba(255,255,255,0.15); color:white;" onclick="batchSendToRework()">Send to rework</button>
           <button class="text-xs px-3 py-1.5 rounded font-medium hover:opacity-90" style="background:rgba(255,255,255,0.15); color:white;" onclick="batchAddBlocker()">Add blocker</button>
           <div class="flex-1"></div>
@@ -5162,8 +5300,8 @@ let blockerSearch = '';
 let blockerSort = { col: 'age', dir: 'desc' };
 
 function renderBlockers() {
-  // Open blockers only, scoped to visible projects
-  const visibleIds = new Set(visibleProjects().map(p => p.id));
+  // Open blockers only, scoped to projects in the currently selected stage
+  const visibleIds = new Set(stageScopedProjects().map(p => p.id));
   let open = BLOCKERS.filter(b => !b.resolvedAt && visibleIds.has(b.projectId));
 
   // Apply filters
@@ -5239,7 +5377,7 @@ function renderBlockers() {
       <div class="flex items-start justify-between mb-5 gap-4 flex-wrap">
         <div>
           <h1 class="font-serif text-2xl font-bold text-haven-forest">Blockers</h1>
-          <p class="text-sm text-haven-muted mt-1">${allOpen.length} open blocker${allOpen.length === 1 ? '' : 's'} across ${blockedProjectIds.size} project${blockedProjectIds.size === 1 ? '' : 's'}</p>
+          <p class="text-sm text-haven-muted mt-1">${currentStage === '__all__' ? 'All stages' : currentStage === 'completed' ? 'Completed' : STAGE_LABELS[currentStage]} · ${allOpen.length} open blocker${allOpen.length === 1 ? '' : 's'} across ${blockedProjectIds.size} project${blockedProjectIds.size === 1 ? '' : 's'}</p>
         </div>
         <div class="relative">
           <input type="text" id="blockerSearch" placeholder="Search project or blocker..." value="${blockerSearch.replace(/"/g, '&quot;')}"
@@ -5981,6 +6119,169 @@ function renderMetrics() {
     </div>
   `;
 }
+
+
+// ============================================================
+// STUCK DEALS — concentrations of projects wedged in each phase/status
+// ============================================================
+let stuckSort = { col: 'deals_stuck', dir: 'desc' };
+let stuckPhaseFilter = null;
+
+function computeStuckAggregates() {
+  // Only active projects. Stage scope is intentionally NOT applied — this report is
+  // global by design, showing concentrations across the whole pipeline.
+  const active = PROJECTS.filter(p => p.stage !== 'completed');
+  const byStatus = {};
+  active.forEach(p => {
+    const status = stuckStatusForProject(p);
+    if (!status) return;
+    const days = daysStuckForProject(p);
+    if (!byStatus[status]) byStatus[status] = { status, phase: STUCK_STATUS_CATALOG[status]?.phase || 'Other', days: [], projects: [] };
+    byStatus[status].days.push(days);
+    byStatus[status].projects.push(p);
+  });
+  const rows = Object.values(byStatus).map(r => {
+    const sorted = r.days.slice().sort((a, b) => a - b);
+    const median = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+    const max = sorted.length > 0 ? sorted[sorted.length - 1] : 0;
+    const over90 = r.days.filter(d => d > 90).length;
+    return {
+      phase: r.phase,
+      status: r.status,
+      dealsStuck: r.projects.length,
+      median,
+      max,
+      over90,
+      projects: r.projects,
+    };
+  });
+  return rows;
+}
+
+function renderStuck() {
+  const rows = computeStuckAggregates();
+
+  // Phase-level totals for the summary strip
+  const byPhase = {};
+  rows.forEach(r => {
+    if (!byPhase[r.phase]) byPhase[r.phase] = { phase: r.phase, deals: 0, over90: 0 };
+    byPhase[r.phase].deals += r.dealsStuck;
+    byPhase[r.phase].over90 += r.over90;
+  });
+  const phases = Object.values(byPhase).sort((a, b) => b.deals - a.deals);
+  const totalStuck = rows.reduce((s, r) => s + r.dealsStuck, 0);
+  const totalOver90 = rows.reduce((s, r) => s + r.over90, 0);
+
+  // Apply phase filter
+  let list = rows.slice();
+  if (stuckPhaseFilter) list = list.filter(r => r.phase === stuckPhaseFilter);
+
+  // Sort
+  const acc = {
+    phase: r => r.phase,
+    status: r => r.status.toLowerCase(),
+    deals_stuck: r => r.dealsStuck,
+    median: r => r.median,
+    max: r => r.max,
+    over_90: r => r.over90,
+  };
+  const accFn = acc[stuckSort.col] || acc.deals_stuck;
+  const dir = stuckSort.dir === 'asc' ? 1 : -1;
+  list.sort((a, b) => {
+    const av = accFn(a), bv = accFn(b);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return 0;
+  });
+
+  // Mark the top 3 concentrations (by deals stuck) for bolding
+  const topIds = new Set(rows.slice().sort((a, b) => b.dealsStuck - a.dealsStuck).slice(0, 3).map(r => r.status));
+
+  const th = (key, label, opts = {}) => {
+    const { align = 'left' } = opts;
+    const isSorted = stuckSort.col === key;
+    const icon = isSorted ? (stuckSort.dir === 'asc' ? '↑' : '↓') : '<span style="color:#C4C4C0">↕</span>';
+    return `<th class="px-4 py-2.5 text-${align}"><button class="uppercase tracking-wide text-xs text-haven-muted hover:text-haven-forest flex items-center gap-1 ${align === 'right' ? 'ml-auto' : ''}" onclick="toggleStuckSort('${key}')">${label} ${icon}</button></th>`;
+  };
+
+  main.innerHTML = `
+    <div class="p-6 max-w-6xl">
+      <div class="mb-5">
+        <h1 class="font-serif text-2xl font-bold text-haven-forest">Stuck Deals</h1>
+        <p class="text-sm text-haven-muted mt-1">Concentrations of projects wedged in each phase + status · ${totalStuck} stuck · ${totalOver90} over 90 days</p>
+      </div>
+
+      <div class="grid grid-cols-4 gap-3 mb-6">
+        ${phases.slice(0, 4).map(p => `
+          <div class="card cursor-pointer hover:shadow-md transition-shadow ${stuckPhaseFilter === p.phase ? 'ring-2 ring-haven-forest' : ''}" onclick="setStuckPhaseFilter('${p.phase.replace(/'/g, "\\'")}')">
+            <div class="text-[10px] uppercase tracking-wider text-haven-muted mb-1">${p.phase}</div>
+            <div class="font-serif font-bold text-3xl text-haven-forest">${p.deals}</div>
+            <div class="text-xs text-haven-muted mt-1">${p.over90 > 0 ? `<span class="text-haven-danger font-medium">${p.over90} over 90d</span>` : 'no 90d+ stuck'}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      ${stuckPhaseFilter ? `
+        <div class="mb-3 text-sm">
+          <span class="text-haven-muted">Filtered by phase:</span> <span class="font-medium text-haven-forest">${stuckPhaseFilter}</span>
+          <button class="text-haven-forest hover:underline ml-2 text-xs" onclick="setStuckPhaseFilter(null)">Clear</button>
+        </div>
+      ` : ''}
+
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-haven-bg border-b border-haven-border">
+            <tr>
+              ${th('phase', 'Phase')}
+              ${th('status', 'Status')}
+              ${th('deals_stuck', 'Deals stuck', { align: 'right' })}
+              ${th('median', 'Median days stuck', { align: 'right' })}
+              ${th('max', 'Max days stuck', { align: 'right' })}
+              ${th('over_90', '> 90 days', { align: 'right' })}
+            </tr>
+          </thead>
+          <tbody>
+            ${list.length === 0 ? `<tr><td colspan="6" class="px-4 py-8 text-center text-haven-muted">No stuck deals in this view</td></tr>` : list.map(r => {
+              const isTop = topIds.has(r.status);
+              const bold = isTop ? 'font-bold text-haven-forest' : '';
+              return `
+                <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" onclick="openStuckDrilldown('${r.status.replace(/'/g, "\\'")}')">
+                  <td class="px-4 py-3 ${bold}">${r.phase}</td>
+                  <td class="px-4 py-3 ${bold}">${r.status}</td>
+                  <td class="px-4 py-3 text-right tabular-nums ${bold}">${r.dealsStuck}</td>
+                  <td class="px-4 py-3 text-right tabular-nums ${bold}">${r.median}</td>
+                  <td class="px-4 py-3 text-right tabular-nums">${r.max}</td>
+                  <td class="px-4 py-3 text-right tabular-nums ${r.over90 > 0 ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${r.over90}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="text-xs text-haven-muted mt-3 italic">
+        Top 3 concentrations shown in bold. A project is considered stuck when days-in-stage exceeds the target threshold for its phase (e.g. 14d for Site Survey, 45d for Permitting). Click any row to see the underlying projects.
+      </div>
+    </div>
+  `;
+}
+
+window.toggleStuckSort = (col) => {
+  if (stuckSort.col === col) stuckSort.dir = stuckSort.dir === 'asc' ? 'desc' : 'asc';
+  else stuckSort = { col, dir: col === 'status' || col === 'phase' ? 'asc' : 'desc' };
+  render();
+};
+window.setStuckPhaseFilter = (phase) => {
+  stuckPhaseFilter = phase;
+  render();
+};
+window.openStuckDrilldown = (status) => {
+  // Build a quick list of underlying projects. For the demo we surface them in an alert-style
+  // lightweight listing; could be upgraded to a drilldown page.
+  const projects = PROJECTS.filter(p => stuckStatusForProject(p) === status);
+  if (projects.length === 0) return;
+  // Open the first project's modal as a drilldown example
+  openProjectModal(projects.sort((a, b) => (b.daysInStage || 0) - (a.daysInStage || 0))[0].id);
+};
 
 
 // ============================================================
