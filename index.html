@@ -1382,6 +1382,7 @@ let pipelineFilter = 'all'; // all | ready_to_advance | at_risk
 let pipelineSearch = '';
 let pipelineStateFilter = 'all'; // all | CA | MA
 let pipelineDrilldownStage = null; // null means show full kanban; otherwise show drilldown for this stage
+let pipelineExpandedStages = new Set(); // which stage cards have their sub-buckets expanded
 let pipelineDrilldownSubBucket = null; // when set, drilldown pre-filters to this sub-bucket
 let pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
 let pipelineDrilldownOpenFilter = null; // which column filter dropdown is open
@@ -1558,6 +1559,7 @@ function renderNav() {
       pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
       pipelineDrilldownOpenFilter = null;
       pipelineSearch = '';
+      pipelineExpandedStages = new Set();
       runbookProjectId = null;
       jobsSearch = '';
       renderNav();
@@ -1922,25 +1924,30 @@ function renderPipeline() {
       info: '#3A6EA8', neutral: '#6B7568',
     };
 
+    const isExpanded = pipelineExpandedStages.has(stage) || !!pipelineSearch.trim();
+
     return `
       <div class="card p-0 overflow-hidden">
-        <div class="px-4 py-3 border-b border-haven-border cursor-pointer hover:bg-haven-bg flex items-center justify-between" onclick="drilldownStage('${stage}')" title="Click to see all projects in ${STAGE_LABELS[stage]}">
-          <div>
-            <div class="font-serif font-bold text-haven-forest flex items-center gap-1.5">
-              ${STAGE_LABELS[stage]}
-              <svg class="w-3.5 h-3.5 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <div class="px-4 py-3 border-b border-haven-border flex items-center gap-3" style="${isExpanded ? 'border-bottom-color:#E4E6E0' : 'border-bottom-color:transparent'}">
+          <button class="flex items-start gap-2.5 flex-1 min-w-0 text-left hover:bg-haven-bg rounded px-1 -mx-1 py-0.5 transition-colors" onclick="toggleStageExpanded('${stage}')">
+            <svg class="w-4 h-4 text-haven-muted shrink-0 mt-1 transition-transform" style="${isExpanded ? 'transform:rotate(90deg);' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+            <div class="min-w-0">
+              <div class="font-serif font-bold text-haven-forest">${STAGE_LABELS[stage]}</div>
+              <div class="text-xs text-haven-muted mt-0.5">
+                ${count} project${count === 1 ? '' : 's'}
+                ${atRiskInStage > 0 ? ` · <span class="text-haven-danger font-medium">${atRiskInStage} at risk</span>` : ''}
+                ${blockedInStage > 0 ? ` · <span class="text-haven-warn font-medium">${blockedInStage} blocked</span>` : ''}
+                ${readyInStage > 0 ? ` · <span class="text-haven-ok font-medium">${readyInStage} ready</span>` : ''}
+              </div>
             </div>
-            <div class="text-xs text-haven-muted mt-0.5">
-              ${count} project${count === 1 ? '' : 's'}
-              ${atRiskInStage > 0 ? ` · <span class="text-haven-danger font-medium">${atRiskInStage} at risk</span>` : ''}
-              ${blockedInStage > 0 ? ` · <span class="text-haven-warn font-medium">${blockedInStage} blocked</span>` : ''}
-              ${readyInStage > 0 ? ` · <span class="text-haven-ok font-medium">${readyInStage} ready</span>` : ''}
-            </div>
+          </button>
+          <div class="flex items-center gap-3 shrink-0">
+            <div class="font-serif font-bold text-2xl text-haven-forest tabular-nums">${count}</div>
+            ${count > 0 ? `<button class="text-xs text-haven-forest hover:underline font-medium shrink-0" onclick="drilldownStage('${stage}')" title="See all projects in ${STAGE_LABELS[stage]}">View all →</button>` : ''}
           </div>
-          <div class="font-serif font-bold text-2xl text-haven-forest">${count}</div>
         </div>
 
-        ${count === 0 ? `
+        ${isExpanded ? (count === 0 ? `
           <div class="px-4 py-5 text-center text-xs text-haven-muted italic">No projects in this stage</div>
         ` : `
           <table class="w-full text-sm">
@@ -1965,7 +1972,7 @@ function renderPipeline() {
               }).join('')}
             </tbody>
           </table>
-        `}
+        `) : ''}
       </div>`;
   };
 
@@ -1999,6 +2006,21 @@ function renderPipeline() {
         })()}
         ${kpiTile('Ready to Advance', readyCount, readyCount > 0 ? 'ok' : 'neutral', readyCount > 0 ? 'move these forward' : 'none ready')}
         ${kpiTile('Completed', completedCount, 'ok', 'lifetime')}
+      </div>
+
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-serif font-bold text-haven-forest">Stages</h2>
+        ${(() => {
+          const allExpanded = STAGE_ORDER.every(s => pipelineExpandedStages.has(s));
+          return `<button class="text-sm text-haven-forest hover:underline font-medium flex items-center gap-1" onclick="toggleAllStages()">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              ${allExpanded
+                ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/>'
+                : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>'}
+            </svg>
+            ${allExpanded ? 'Collapse all' : 'Expand all'}
+          </button>`;
+        })()}
       </div>
 
       <div class="grid grid-cols-2 gap-4">
@@ -2046,6 +2068,17 @@ function attachPipelineSearchHandler() {
 
 window.setPipelineState = (key) => { pipelineStateFilter = key; render(); };
 window.clearPipelineSearch = () => { pipelineSearch = ''; render(); };
+window.toggleStageExpanded = (stage) => {
+  if (pipelineExpandedStages.has(stage)) pipelineExpandedStages.delete(stage);
+  else pipelineExpandedStages.add(stage);
+  render();
+};
+window.toggleAllStages = () => {
+  const allExpanded = STAGE_ORDER.every(s => pipelineExpandedStages.has(s));
+  if (allExpanded) pipelineExpandedStages = new Set();
+  else pipelineExpandedStages = new Set(STAGE_ORDER);
+  render();
+};
 window.drilldownStage = (stage) => {
   pipelineDrilldownStage = stage;
   pipelineDrilldownSubBucket = null;
