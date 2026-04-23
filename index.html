@@ -6409,7 +6409,7 @@ function renderStuckDrilldown() {
 // ============================================================
 // This pulls the existing production dashboard at haven-post-install.vercel.app directly
 // so numbers stay in sync with HubSpot + SGIP without duplicating any logic.
-const ICF_DEEP_DIVE_URL = 'https://haven-post-install.vercel.app/#icfDeepDive';
+const ICF_DEEP_DIVE_URL = 'https://haven-post-install.vercel.app/?auth=' + encodeURIComponent('GoodEnergy1@') + '&tab=icfDeepDive';
 
 function renderIcfDeepDive() {
   main.innerHTML = `
