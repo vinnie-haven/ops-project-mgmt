@@ -1699,6 +1699,22 @@ document.getElementById('stageSelect').addEventListener('change', (e) => {
   currentStage = e.target.value;
   // Clear task selection since the visible set has changed
   selectedTasks.clear();
+  // If we're inside a pipeline drilldown, retarget (or exit) to match the selected stage
+  if (currentView === 'pipeline' && pipelineDrilldownStage) {
+    if (currentStage === '__all__' || currentStage === 'completed') {
+      // No drilldown equivalent for "all" or "completed" — exit to pipeline overview
+      pipelineDrilldownStage = null;
+      pipelineDrilldownSubBucket = null;
+      pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
+      pipelineDrilldownOpenFilter = null;
+    } else {
+      // Retarget drilldown to the newly selected stage; clear sub-bucket since it won't apply
+      pipelineDrilldownStage = currentStage;
+      pipelineDrilldownSubBucket = null;
+      pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
+      pipelineDrilldownOpenFilter = null;
+    }
+  }
   renderStageSelector(); renderNav(); render();
 });
 
@@ -2243,6 +2259,9 @@ window.drilldownStage = (stage) => {
   pipelineDrilldownSubBucket = null;
   pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
   pipelineDrilldownOpenFilter = null;
+  // Keep sidebar stage selector in sync so changing the dropdown retargets the drilldown
+  currentStage = stage;
+  renderStageSelector();
   render();
 };
 window.drilldownSubBucket = (stage, subKey) => {
@@ -2250,6 +2269,8 @@ window.drilldownSubBucket = (stage, subKey) => {
   pipelineDrilldownSubBucket = subKey;
   pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: subKey };
   pipelineDrilldownOpenFilter = null;
+  currentStage = stage;
+  renderStageSelector();
   render();
 };
 window.exitDrilldown = () => {
@@ -2257,6 +2278,9 @@ window.exitDrilldown = () => {
   pipelineDrilldownSubBucket = null;
   pipelineDrilldownFilters = { utility: null, installer: null, coord: null, sub_bucket: null };
   pipelineDrilldownOpenFilter = null;
+  // Reset sidebar stage selector back to "all" when exiting drilldown
+  currentStage = '__all__';
+  renderStageSelector();
   render();
 };
 window.togglePDSort = (col) => {
