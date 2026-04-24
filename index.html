@@ -796,6 +796,43 @@ function blockerAgeTone(b) {
 // PHOTOS
 // ============================================================
 const PHOTO_CATEGORIES = ['roof_north', 'roof_south', 'main_panel', 'meter', 'attic', 'battery_location', 'inverter', 'subpanel'];
+
+// Milestone-level tags for filtering + task view surfacing.
+// Each photo carries one or more of these. The catalog defines labels + colors + which
+// runbook task/stage milestone they belong to.
+const PHOTO_TAG_CATALOG = {
+  site_survey:   { label: 'Site survey', color: '#8E4A9C', stages: ['site_survey'] },
+  pre_install:   { label: 'Pre-install', color: '#3A6EA8', stages: ['design', 'permitting', 'scheduling'] },
+  equipment:     { label: 'Equipment',   color: '#C5843A', stages: ['installation', 'inspection'] },
+  installation:  { label: 'Install day', color: '#6B7568', stages: ['installation'] },
+  post_install:  { label: 'Post-install',color: '#2F7A3E', stages: ['inspection', 'interconnection'] },
+  inspection:    { label: 'Inspection',  color: '#C44545', stages: ['inspection'] },
+  utility_meter: { label: 'Utility meter', color: '#013300', stages: ['interconnection', 'installation'] },
+  final_qc:      { label: 'Final QC',    color: '#E0A83A', stages: ['rebate', 'completed'] },
+};
+
+// Map categories -> default tag sets, used when generating photo data
+const CATEGORY_TO_TAGS = {
+  roof_north: ['site_survey', 'pre_install'],
+  roof_south: ['site_survey', 'pre_install'],
+  main_panel: ['pre_install', 'equipment'],
+  meter: ['utility_meter', 'pre_install'],
+  attic: ['site_survey'],
+  battery_location: ['pre_install', 'installation'],
+  inverter: ['equipment', 'installation'],
+  subpanel: ['equipment', 'installation'],
+  roof_overview: ['site_survey'],
+  main_panel_open: ['pre_install', 'equipment'],
+  panels_on_roof: ['installation'],
+  conduit_run: ['installation'],
+  inverter_mounted: ['installation', 'equipment'],
+  battery_mounted: ['installation', 'equipment'],
+  equipment_labels: ['equipment', 'post_install'],
+  breaker_labels: ['equipment', 'post_install'],
+  completion_shot: ['final_qc', 'post_install'],
+};
+function tagsForCategory(cat) { return CATEGORY_TO_TAGS[cat] || ['pre_install']; }
+
 const PHOTOS = [];
 let photoId = 0;
 // Only generate photos for projects that are plausibly past installation — that's when photos exist.
@@ -808,10 +845,12 @@ PROJECTS.forEach(proj => {
   const n = 3 + Math.floor(Math.random() * 4); // 3-6 photos
   for (let i = 0; i < n; i++) {
     photoId++;
+    const category = PHOTO_CATEGORIES[Math.floor(Math.random() * PHOTO_CATEGORIES.length)];
     PHOTOS.push({
       id: `ph${photoId}`, projectId: proj.id, projectName: proj.name,
       stage: proj.stage === 'completed' ? 'installation' : proj.stage,
-      category: PHOTO_CATEGORIES[Math.floor(Math.random() * PHOTO_CATEGORIES.length)],
+      category: category,
+      tags: tagsForCategory(category),
       flag: Math.random() < 0.15 ? 'needs_review' : Math.random() < 0.9 ? 'approved' : 'rejected',
       gradient: `photo-${1 + (photoId % 8)}`, takenDaysAgo: Math.floor(Math.random() * 30),
     });
@@ -1455,9 +1494,189 @@ function buildEmails(p) {
 // ============================================================
 let viewMode = 'internal';
 let currentCoord = '__all__'; // Legacy coord filter, now locked to "all" — stage selector replaces this for Projects/Tasks/Blockers
+// ============================================================
+// PRIORITY ENGINE — score every project by configurable factors
+// ============================================================
+// Default weights. Team-configurable via a gear-icon popover on priority views.
+// Weights are 0-10; each factor contributes score = (weight) × (factor's 0-1 signal)
+let priorityWeights = {
+  sla_overdue: 10,   // how far past stage SLA target
+  blockers: 8,       // count + age of open blockers
+  incentive: 7,      // SGIP-funded or incentive deadline-sensitive
+  utility_tier: 4,   // major utility (PG&E / SCE / SDG&E)
+  cca_partner: 5,    // Haven CCA partners: PCE, SVCE, MCE, CPA, EBCE, SJCE, SCP
+  install_proximity: 6, // installation/inspection stages count higher (closer to revenue)
+};
+// Persist weight tweaks to localStorage so demo-viewers can experiment and keep state
+try {
+  const saved = window.localStorage && localStorage.getItem('haven_priority_weights');
+  if (saved) priorityWeights = Object.assign(priorityWeights, JSON.parse(saved));
+} catch (e) {}
+
+let priorityOnlyFilter = false; // Pipeline/Projects/Tasks toggle
+let priorityWeightsOpen = false; // settings popover visibility
+
+const CCA_UTILITIES = new Set(['PCE', 'SVCE', 'MCE', 'CPA', 'EBCE', 'SJCE', 'SCP', 'CPSF', 'RCEA']);
+const MAJOR_UTILITIES = new Set(['PG&E', 'SCE', 'SDG&E']);
+const SGIP_FLAG_STAGES = new Set(['rebate']); // rebate stage is SGIP-critical
+
+function daysOpenForBlocker(b) {
+  return b.openedDaysAgo || 0;
+}
+
+function priorityScoreForProject(p) {
+  if (!p || p.stage === 'completed') return 0;
+
+  // Factor 1: SLA overdue (0-1 signal based on how far past target)
+  const target = STAGE_TARGETS_CA[p.stage] || 14;
+  const days = p.daysInStage || 0;
+  const slaSignal = days <= target ? 0 : Math.min(1, (days - target) / (target * 2));
+
+  // Factor 2: Blockers (open blockers weighted by age)
+  const openBlockers = BLOCKERS.filter(b => b.projectId === p.id && !b.resolvedAt);
+  const blockerSignal = openBlockers.length === 0 ? 0 : Math.min(1,
+    (openBlockers.length * 0.3) + openBlockers.reduce((s, b) => s + Math.min(0.4, daysOpenForBlocker(b) / 60), 0)
+  );
+
+  // Factor 3: Incentive urgency (SGIP-funded projects in rebate stage, or any project with sgipApp)
+  const hasSgipSignal = (p.sgipApp || p.incentiveProgram === 'SGIP' || SGIP_FLAG_STAGES.has(p.stage)) ? 1 : 0;
+  const incentiveSignal = hasSgipSignal * 0.8 + (p.stage === 'rebate' ? 0.2 : 0);
+
+  // Factor 4: Utility tier
+  const utilitySignal = MAJOR_UTILITIES.has(p.utility) ? 1 : 0.3;
+
+  // Factor 5: CCA partner project
+  const ccaSignal = CCA_UTILITIES.has(p.utility) ? 1 : 0;
+
+  // Factor 6: Install proximity — later stages = higher
+  const stageIdx = STAGE_ORDER.indexOf(p.stage);
+  const installIdx = STAGE_ORDER.indexOf('installation');
+  const proximitySignal = stageIdx < 0 ? 0 : Math.max(0, Math.min(1, (stageIdx - 1) / (STAGE_ORDER.length - 1)));
+
+  const score =
+    priorityWeights.sla_overdue * slaSignal +
+    priorityWeights.blockers * blockerSignal +
+    priorityWeights.incentive * incentiveSignal +
+    priorityWeights.utility_tier * utilitySignal +
+    priorityWeights.cca_partner * ccaSignal +
+    priorityWeights.install_proximity * proximitySignal;
+
+  return Math.round(score * 10) / 10;
+}
+
+// Cache priority scores so we don't recompute on every render
+let _priorityCache = null;
+let _priorityCacheKey = '';
+function getPriorityScores() {
+  const key = JSON.stringify(priorityWeights);
+  if (_priorityCacheKey === key && _priorityCache) return _priorityCache;
+  const map = new Map();
+  PROJECTS.forEach(p => map.set(p.id, priorityScoreForProject(p)));
+  _priorityCache = map;
+  _priorityCacheKey = key;
+  return map;
+}
+function invalidatePriorityCache() { _priorityCache = null; _priorityCacheKey = ''; }
+
+// Top-quartile threshold — projects above this are "priority"
+function priorityThreshold() {
+  const scores = [...getPriorityScores().values()].filter(s => s > 0).sort((a, b) => b - a);
+  if (scores.length === 0) return Infinity;
+  return scores[Math.floor(scores.length * 0.25)]; // top 25%
+}
+
+function isPriorityProject(p) {
+  const score = getPriorityScores().get(p.id) || 0;
+  return score > 0 && score >= priorityThreshold();
+}
+
+function priorityReasons(p) {
+  // Returns short-form reasons this project scored high, for display
+  const reasons = [];
+  const target = STAGE_TARGETS_CA[p.stage] || 14;
+  const days = p.daysInStage || 0;
+  if (days > target) reasons.push(`${days - target}d over SLA`);
+  const blockers = BLOCKERS.filter(b => b.projectId === p.id && !b.resolvedAt);
+  if (blockers.length > 0) reasons.push(`${blockers.length} open blocker${blockers.length === 1 ? '' : 's'}`);
+  if (p.sgipApp || p.incentiveProgram === 'SGIP') reasons.push('SGIP-funded');
+  if (CCA_UTILITIES.has(p.utility)) reasons.push('CCA partner');
+  if (p.stage === 'installation' || p.stage === 'inspection') reasons.push('Near install');
+  return reasons.slice(0, 3);
+}
+
+// Priority UI helpers
+function renderPriorityToggle() {
+  const priorityCount = visibleProjects().filter(p => p.stage !== 'completed' && isPriorityProject(p)).length;
+  return `
+    <div class="flex items-center gap-2 relative">
+      <button class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm transition-all ${priorityOnlyFilter ? 'bg-haven-forest text-white border-haven-forest' : 'bg-white text-haven-forest border-haven-border hover:border-haven-forest'}" onclick="togglePriorityOnly()" title="Show only top-quartile priority projects">
+        <svg class="w-4 h-4" fill="${priorityOnlyFilter ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>
+        <span>Priority only</span>
+        <span class="text-xs ${priorityOnlyFilter ? 'bg-white text-haven-forest' : 'bg-haven-bg text-haven-muted'} px-1.5 py-0.5 rounded">${priorityCount}</span>
+      </button>
+      <button class="text-haven-muted hover:text-haven-forest p-1.5 rounded-md border border-haven-border bg-white" onclick="togglePriorityWeights()" title="Tune priority weights">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317a1 1 0 011.35 0l1.432 1.308a1 1 0 00.918.246l1.892-.383a1 1 0 011.169.658l.715 1.793a1 1 0 00.67.644l1.903.568a1 1 0 01.684 1.195l-.438 1.892a1 1 0 00.11.74l1.015 1.656a1 1 0 01-.276 1.32l-1.55 1.133a1 1 0 00-.392.68l-.23 1.919a1 1 0 01-.991.883l-1.94.087a1 1 0 00-.73.33l-1.293 1.436a1 1 0 01-1.35 0l-1.432-1.308a1 1 0 00-.918-.246l-1.892.383a1 1 0 01-1.169-.658l-.715-1.793a1 1 0 00-.67-.644l-1.903-.568a1 1 0 01-.684-1.195l.438-1.892a1 1 0 00-.11-.74L3.38 11.62a1 1 0 01.276-1.32l1.55-1.133a1 1 0 00.392-.68l.23-1.919a1 1 0 01.991-.883l1.94-.087a1 1 0 00.73-.33l1.293-1.436zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      </button>
+      ${priorityWeightsOpen ? renderPriorityWeightsPopover() : ''}
+    </div>`;
+}
+
+function renderPriorityWeightsPopover() {
+  const labels = {
+    sla_overdue: 'SLA overdue',
+    blockers: 'Open blockers',
+    incentive: 'Incentive urgency',
+    utility_tier: 'Major utility',
+    cca_partner: 'CCA partner',
+    install_proximity: 'Near install',
+  };
+  const rows = Object.keys(priorityWeights).map(k => `
+    <div class="flex items-center gap-3 py-1.5">
+      <div class="text-xs flex-1" style="color:#1A1F1A;">${labels[k]}</div>
+      <input type="range" min="0" max="10" step="1" value="${priorityWeights[k]}"
+        oninput="setPriorityWeight('${k}', this.value)" class="flex-1" style="accent-color:#013300;">
+      <div class="text-xs font-bold tabular-nums w-6 text-right" style="color:#013300;">${priorityWeights[k]}</div>
+    </div>`).join('');
+  return `
+    <div class="absolute top-full right-0 mt-1 bg-white border border-haven-border rounded-lg shadow-lg p-4 z-40" style="width:280px;">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-xs uppercase tracking-wider font-bold text-haven-forest">Priority weights</div>
+        <button class="text-haven-muted hover:text-haven-forest text-xs" onclick="resetPriorityWeights()">Reset</button>
+      </div>
+      <div class="text-[11px] text-haven-muted mb-3">Adjust how each factor contributes to a project's priority score.</div>
+      ${rows}
+    </div>`;
+}
+
+window.togglePriorityOnly = () => { priorityOnlyFilter = !priorityOnlyFilter; priorityWeightsOpen = false; render(); };
+window.setModalPhotoTag = (tag) => { modalPhotoTagFilter = tag; render(); };
+window.togglePriorityWeights = () => { priorityWeightsOpen = !priorityWeightsOpen; render(); };
+window.setPriorityWeight = (key, value) => {
+  priorityWeights[key] = parseInt(value, 10);
+  try { localStorage.setItem('haven_priority_weights', JSON.stringify(priorityWeights)); } catch (e) {}
+  invalidatePriorityCache();
+  render();
+};
+window.resetPriorityWeights = () => {
+  priorityWeights = { sla_overdue: 10, blockers: 8, incentive: 7, utility_tier: 4, cca_partner: 5, install_proximity: 6 };
+  try { localStorage.setItem('haven_priority_weights', JSON.stringify(priorityWeights)); } catch (e) {}
+  invalidatePriorityCache();
+  render();
+};
+
+// Small priority flame badge for row display
+function priorityBadge(p) {
+  if (!isPriorityProject(p)) return '';
+  return `<span class="inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style="background:#FEF3C7; color:#92400E;" title="${priorityReasons(p).join(' · ')}">
+    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M13.5.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67z"/></svg>
+    Priority
+  </span>`;
+};
+
 let currentStage = '__all__'; // New stage selector, drives filtering on Projects/Tasks/Blockers pages
 let currentView = 'pipeline';
 let photoFilter = 'all';
+let modalPhotoTagFilter = 'all'; // Tag filter for the project modal photo album ('all' or a tag key)
 let pipelineFilter = 'all'; // all | ready_to_advance | at_risk
 let pipelineSearch = '';
 let pipelineStateFilter = 'all'; // all | CA | MA
@@ -1557,9 +1776,16 @@ function visibleProjects() {
 // Stage-scoped projects: visibleProjects filtered by the sidebar "Viewing stage" selector.
 // Used by Projects, Tasks, and Blockers pages. Pipeline does NOT use this (it buckets by stage itself).
 function stageScopedProjects() {
+  let base = visibleProjects();
+  if (currentStage !== '__all__') base = base.filter(p => p.stage === currentStage);
+  if (priorityOnlyFilter) base = base.filter(p => isPriorityProject(p));
+  return base;
+}
+
+// Pipeline uses visibleProjects directly but may also need priority-filtered projects
+function pipelinePriorityFilteredProjects() {
   const base = visibleProjects();
-  if (currentStage === '__all__') return base;
-  return base.filter(p => p.stage === currentStage);
+  return priorityOnlyFilter ? base.filter(p => isPriorityProject(p)) : base;
 }
 
 // Which projects are "ready to advance"?
@@ -2159,6 +2385,7 @@ function renderPipeline() {
           <p class="text-sm text-haven-muted mt-1">${coordLabel} · Click any stage or sub-bucket to see the underlying projects</p>
         </div>
         <div class="flex items-center gap-3">
+          ${renderPriorityToggle()}
           ${renderPipelineSearch()}
           ${renderPipelineStateToggle()}
         </div>
@@ -2396,6 +2623,7 @@ function renderPipelineDrilldown() {
           </p>
         </div>
         <div class="flex items-center gap-3">
+          ${renderPriorityToggle()}
           ${renderPipelineSearch()}
           ${renderPipelineStateToggle()}
         </div>
@@ -2499,7 +2727,10 @@ function renderPipelineDrilldown() {
                     <span class="risk-dot ${p.riskLevel || 'low'}"></span>
                   </td>
                   <td class="px-3 py-2.5">
-                    <div class="font-medium text-haven-forest">${p.name}</div>
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <div class="font-medium text-haven-forest">${p.name}</div>
+                      ${priorityBadge(p)}
+                    </div>
                     <div class="text-[11px] text-haven-muted">${p.projectNumber} · ${p.city}, ${p.state}</div>
                   </td>
                   <td class="px-3 py-2.5"><span class="badge badge-info">${p.utility}</span></td>
@@ -2901,6 +3132,7 @@ function pipelineFilteredProjects() {
   if (pipelineStateFilter !== 'all') list = list.filter(p => p.state === pipelineStateFilter);
   if (pipelineFilter === 'ready_to_advance') list = list.filter(p => isReadyToAdvance(p));
   else if (pipelineFilter === 'at_risk') list = list.filter(p => p.riskLevel === 'high');
+  if (priorityOnlyFilter) list = list.filter(p => isPriorityProject(p));
   if (pipelineSearch.trim()) {
     const q = pipelineSearch.trim().toLowerCase();
     list = list.filter(p =>
@@ -3116,6 +3348,7 @@ function renderProjects() {
           </p>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
+          ${renderPriorityToggle()}
           <button class="filter-chip ${projectsDependentOnMe ? 'active' : ''}" onclick="toggleProjDependentOnMe()" title="Projects waiting on internal action">Needs action</button>
           <div class="relative">
             <input type="text" id="projSearch" placeholder="Search name, city, project #..." value="${projectsSearch.replace(/"/g, '&quot;')}"
@@ -3171,7 +3404,12 @@ function renderProjects() {
                 <tr class="border-b border-haven-border hover:bg-haven-bg cursor-pointer" data-project-id="${p.id}">
                   <td class="px-3 py-2.5"><span class="risk-dot ${p.riskLevel || 'low'}"></span></td>
                   <td class="px-3 py-2.5 text-xs text-haven-muted">${p.projectNumber}</td>
-                  <td class="px-3 py-2.5 font-medium text-haven-forest">${p.name}</td>
+                  <td class="px-3 py-2.5 font-medium text-haven-forest">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span>${p.name}</span>
+                      ${priorityBadge(p)}
+                    </div>
+                  </td>
                   <td class="px-3 py-2.5 text-haven-muted">${p.city}, ${p.state}</td>
                   <td class="px-3 py-2.5">${p.stage === 'completed' ? 'Completed' : STAGE_LABELS[p.stage]}</td>
                   <td class="px-3 py-2.5">${avatar(coord, 20)} <span class="text-xs align-middle ml-1">${coord.split(' ')[0]}</span></td>
@@ -3340,7 +3578,12 @@ function renderTasks(installerOnly) {
                 <div class="font-medium ${done ? 'line-through text-haven-muted' : ''}">${t.title}</div>
                 <div class="text-xs text-haven-muted mt-0.5">${STAGE_LABELS[t.stage]}${t.autoGenerated ? ' · auto' : ''}</div>
               </td>
-              <td class="px-4 py-2.5 text-haven-forest">${proj.name}</td>
+              <td class="px-4 py-2.5 text-haven-forest">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span>${proj.name}</span>
+                  ${priorityBadge(proj)}
+                </div>
+              </td>
               ${installerOnly ? '' : `<td class="px-4 py-2.5">${avatar(assignee, 20)} <span class="text-xs ml-1 align-middle">${assignee.split(' ')[0]}</span></td>`}
               <td class="px-4 py-2.5 ${overdue && !done ? 'text-haven-danger font-medium' : 'text-haven-muted'}">${dueText}</td>
             </tr>`;
@@ -3359,6 +3602,7 @@ function renderTasks(installerOnly) {
           <p class="text-sm text-haven-muted mt-1">${installerOnly ? CURRENT_INSTALLER : (currentStage === '__all__' ? 'All stages' : currentStage === 'completed' ? 'Completed' : STAGE_LABELS[currentStage])} · ${tasks.length} shown</p>
         </div>
         <div class="flex items-center gap-2">
+          ${!installerOnly ? renderPriorityToggle() : ''}
           ${!installerOnly ? `<button class="filter-chip ${taskBatchMode ? 'active' : ''}" onclick="toggleBatchMode()">Batch mode</button>` : ''}
           <button class="btn btn-primary text-sm">+ New task</button>
         </div>
@@ -4448,6 +4692,12 @@ function renderRunbook(p) {
     const tone = item.uploaded ? 'ok' : item.required ? 'warn' : 'neutral';
     const border = item.uploaded ? '#2F7A3E' : item.required ? '#E0A83A' : '#E4E6E0';
     const bg = item.uploaded ? '#F2F9F3' : 'white';
+    const tags = tagsForCategory(item.category);
+    const tagPills = tags.slice(0, 2).map(t => {
+      const cfg = PHOTO_TAG_CATALOG[t];
+      if (!cfg) return '';
+      return `<span class="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded" style="background:${cfg.color}20;color:${cfg.color};">${cfg.label}</span>`;
+    }).join(' ');
     return `
       <div class="flex items-center gap-3 p-3 rounded-md border transition-all" style="border-color:${border};background:${bg};">
         <div class="w-14 h-14 rounded-md shrink-0 flex items-center justify-center"
@@ -4455,7 +4705,7 @@ function renderRunbook(p) {
           ${item.uploaded ? `<span style="color:white;font-size:18px;">✓</span>` : `<span style="color:#C4C4C0;font-size:22px;">+</span>`}
         </div>
         <div class="flex-1 min-w-0">
-          <div class="font-medium text-sm">${item.label}</div>
+          <div class="font-medium text-sm flex items-center gap-2 flex-wrap">${item.label} ${tagPills}</div>
           <div class="text-[11px] text-haven-muted mt-0.5">
             ${item.uploaded
               ? `Uploaded ${Math.floor((Date.now() - item.uploadedAt) / 86400000)}d ago`
@@ -7046,11 +7296,24 @@ function openProjectModal(projectId) {
             <ul class="space-y-2">
               ${projectTasks.map(t => {
                 const done = completedTasks.has(t.id) || t.status === 'done';
+                // Find photos whose milestone tags align with this task's stage
+                const taskPhotos = projectPhotos.filter(ph => {
+                  return (ph.tags || []).some(tag => {
+                    const cfg = PHOTO_TAG_CATALOG[tag];
+                    return cfg && cfg.stages && cfg.stages.includes(t.stage);
+                  });
+                }).slice(0, 4);
+                const photoStrip = taskPhotos.length === 0 ? '' : `
+                  <div class="flex items-center gap-1 mt-2">
+                    ${taskPhotos.map(ph => `<div class="w-8 h-8 ${ph.gradient} rounded shrink-0" title="${ph.category.replace(/_/g, ' ')}"></div>`).join('')}
+                    ${projectPhotos.filter(ph => (ph.tags || []).some(tag => { const cfg = PHOTO_TAG_CATALOG[tag]; return cfg && cfg.stages && cfg.stages.includes(t.stage); })).length > 4 ? `<div class="text-[10px] text-haven-muted ml-1">+${projectPhotos.filter(ph => (ph.tags || []).some(tag => { const cfg = PHOTO_TAG_CATALOG[tag]; return cfg && cfg.stages && cfg.stages.includes(t.stage); })).length - 4} more</div>` : ''}
+                  </div>`;
                 return `<li class="text-sm border border-haven-border rounded p-2 flex items-start gap-2">
                   <div class="checkbox ${done ? 'checked' : ''}" onclick="event.stopPropagation(); toggleTask('${t.id}'); setTimeout(() => openProjectModal('${p.id}'), 50)">${done ? '✓' : ''}</div>
                   <div class="flex-1">
                     <div class="font-medium ${done ? 'line-through text-haven-muted' : ''}">${t.title}</div>
                     <div class="text-xs text-haven-muted mt-0.5">${done ? 'completed' : t.dueInDays < 0 ? `${-t.dueInDays}d overdue` : t.dueInDays === 0 ? 'due today' : `due in ${t.dueInDays}d`}${t.autoGenerated ? ' · auto' : ''}</div>
+                    ${photoStrip}
                   </div>
                 </li>`;
               }).join('')}
@@ -7062,8 +7325,37 @@ function openProjectModal(projectId) {
             <h3 class="font-serif font-bold text-haven-forest">Photos</h3>
             <span class="text-xs text-haven-muted">${projectPhotos.length}</span>
           </div>
+          ${(() => {
+            // Tag chip row: only show tags that exist on this project's photos
+            const tagCounts = {};
+            projectPhotos.forEach(ph => (ph.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+            const availableTags = Object.keys(tagCounts);
+            if (availableTags.length === 0) return '';
+            const chips = [`<button class="text-[10px] px-2 py-0.5 rounded-full border transition ${modalPhotoTagFilter === 'all' ? 'bg-haven-forest text-white border-haven-forest' : 'bg-white text-haven-muted border-haven-border hover:border-haven-forest'}" onclick="setModalPhotoTag('all')">All ${projectPhotos.length}</button>`];
+            availableTags.forEach(t => {
+              const cfg = PHOTO_TAG_CATALOG[t];
+              if (!cfg) return;
+              const active = modalPhotoTagFilter === t;
+              const style = active
+                ? `background:${cfg.color}; color:white; border-color:${cfg.color};`
+                : `background:white; color:${cfg.color}; border-color:${cfg.color}40;`;
+              chips.push(`<button class="text-[10px] px-2 py-0.5 rounded-full border transition hover:opacity-80" style="${style}" onclick="setModalPhotoTag('${t}')">${cfg.label} ${tagCounts[t]}</button>`);
+            });
+            return `<div class="flex items-center gap-1 mb-2 flex-wrap">${chips.join('')}</div>`;
+          })()}
           <div class="grid grid-cols-3 gap-1">
-            ${projectPhotos.slice(0, 9).map(ph => `<div class="aspect-square ${ph.gradient} rounded relative"><div class="absolute bottom-0 left-0 right-0 text-[9px] text-white/90 bg-black/30 px-1 truncate">${ph.category.replace('_', ' ')}</div></div>`).join('')}
+            ${(() => {
+              const filtered = modalPhotoTagFilter === 'all'
+                ? projectPhotos
+                : projectPhotos.filter(ph => (ph.tags || []).includes(modalPhotoTagFilter));
+              if (filtered.length === 0) return '<div class="col-span-3 text-[11px] text-haven-muted italic py-3 text-center">No photos in this category</div>';
+              return filtered.slice(0, 9).map(ph => {
+                const firstTag = (ph.tags || [])[0];
+                const tagCfg = firstTag ? PHOTO_TAG_CATALOG[firstTag] : null;
+                const dot = tagCfg ? `<div class="absolute top-1 right-1 w-2 h-2 rounded-full border border-white/80" style="background:${tagCfg.color}" title="${tagCfg.label}"></div>` : '';
+                return `<div class="aspect-square ${ph.gradient} rounded relative">${dot}<div class="absolute bottom-0 left-0 right-0 text-[9px] text-white/90 bg-black/30 px-1 truncate">${ph.category.replace(/_/g, ' ')}</div></div>`;
+              }).join('');
+            })()}
           </div>
           <button class="btn btn-secondary text-xs mt-3 w-full justify-center">${viewMode === 'installer' ? 'Upload' : 'View all'}</button>
         </div>
